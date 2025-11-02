@@ -24,24 +24,27 @@ dev = [
 [tool.ruff]
 # チェック対象
 src = ["src", "tests"]
+# 行の長さ制限
+line-length = 100
+
+[tool.ruff.lint]
 # チェックルール（E,F,I,B,UP,N,D）
 select = ["E", "F", "I", "B", "UP", "N", "D"]
 # 無視するルール：実験・日本語プロジェクトに合うように少し緩め
 ignore = [
     "D100", "D104", "D107",  # docstringなしを許可
     "D203", "D213",          # docstringの1行目改行ルールを無視（日本語に合わない）
+    "D400", "D415",           # 最終文字が "." 出ないことを許可
     "N802", "N803", "N806",  # 命名規則ゆるめ
 ]
 
-# 行の長さ制限
-line-length = 100
 # Import順（isort互換）
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 known-first-party = ["enzanlab"]
 combine-as-imports = true
 
 # docstringスタイル設定
-[tool.ruff.pydocstyle]
+[tool.ruff.lint.pydocstyle]
 convention = "google"
 
 # フォーマット設定
