@@ -1,0 +1,52 @@
+[project]
+name = "enzanlab"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "ko", email = "ko@to.me" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.3.4",
+    "scipy>=1.16.3",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.7,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.3",
+]
+
+[tool.ruff]
+# チェック対象
+src = ["src", "tests"]
+# チェックルール（E,F,I,B,UP,N,D）
+select = ["E", "F", "I", "B", "UP", "N", "D"]
+# 無視するルール：実験・日本語プロジェクトに合うように少し緩め
+ignore = [
+    "D100", "D104", "D107",  # docstringなしを許可
+    "D203", "D213",          # docstringの1行目改行ルールを無視（日本語に合わない）
+    "N802", "N803", "N806",  # 命名規則ゆるめ
+]
+
+# 行の長さ制限
+line-length = 100
+# Import順（isort互換）
+[tool.ruff.isort]
+known-first-party = ["enzanlab"]
+combine-as-imports = true
+
+# docstringスタイル設定
+[tool.ruff.pydocstyle]
+convention = "google"
+
+# フォーマット設定
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+docstring-code-format = true
