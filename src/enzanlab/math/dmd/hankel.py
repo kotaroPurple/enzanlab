@@ -5,12 +5,32 @@ from numpy.typing import NDArray
 
 
 def array_to_hankel_matrix(data: NDArray, window_size: int) -> NDArray:
+    """Convert a 1D array into a Hankel matrix using sliding windows.
+
+    Args:
+        data (NDArray): The 1D array to convert.
+        window_size (int): The number of rows in the Hankel matrix.
+
+    Raises:
+        ValueError: If the data is not 1D.
+
+    Returns:
+        NDArray: Hankel matrix
+    """
     if data.ndim != 1:
         raise ValueError()
     return sliding_window_view(data, len(data) - window_size + 1)
 
 
 def flatten_hankel_matrix(hankel_mat: NDArray) -> NDArray:
+    """Flatten a Hankel matrix into a 1D array by averaging anti-diagonals.
+
+    Args:
+        hankel_mat (NDArray): The Hankel matrix to flatten.
+
+    Returns:
+        NDArray: 1D array
+    """
     n_rows, n_cols = hankel_mat.shape
     row_indices = np.arange(n_rows)[:, None]
     col_indices = np.arange(n_cols)[None, :]
@@ -22,47 +42,30 @@ def flatten_hankel_matrix(hankel_mat: NDArray) -> NDArray:
 
 
 class HankelSignal:
+    """Generate Hankel Matrix from 1D array signal in an online manner."""
     def __init__(self, window_size: int) -> None:
         self._window_size = window_size
         self._array = np.zeros(self._window_size)
 
-    def initialize(self, values: NDArray) -> NDArray:
+    def initialize(self, values: NDArray[np.floating|np.complexfloating]) -> NDArray:
+        """Initialize the Hankel signal with the first window of values.
+
+        Args:
+            values (NDArray): The initial values for the Hankel signal.
+
+        Raises:
+            ValueError: If the shape of the values does not match the window size.
+
+        Returns:
+            NDArray: The initialized Hankel signal.
+        """
         if self._array.shape != values.shape:
             raise ValueError()
         self._array[...] = values
         return self._array
 
-    def update(self, value: float) -> NDArray:
+    def update(self, value: float|complex) -> NDArray:
+        """Update the Hankel signal with a new value."""
         self._array[:-1] = self._array[1:]
         self._array[-1] = value
         return self._array
-
-
-if __name__ == '__main__':
-    data = np.arange(30)
-    han = array_to_hankel_matrix(data, window_size=10)
-    rec = flatten_hankel_matrix(han)
-    print(han.shape)
-    # print(han)
-    print(rec.shape)
-    print(rec)
-    hankel_signal = HankelSignal(10)
-    print(hankel_signal.initialize(data[:10]))
-    a = hankel_signal.update(data[10])
-    print(a)
-    print()
-    # complex-valued verification
-    phase = np.linspace(0, np.pi, 30)
-    complex_data = np.exp(1j * phase)
-    complex_han = array_to_hankel_matrix(complex_data, window_size=10)
-    complex_rec = flatten_hankel_matrix(complex_han)
-    manual_check = []
-    row_idx = np.arange(complex_han.shape[0])[:, None]
-    col_idx = np.arange(complex_han.shape[1])[None, :]
-    for diag_idx in range(complex_han.shape[0] + complex_han.shape[1] - 1):
-        mask = (row_idx + col_idx) == diag_idx
-        manual_check.append(complex_han[mask].mean())
-    manual_check = np.array(manual_check)
-    print('Complex Hankel shape:', complex_han.shape)
-    print('Flattened complex result (first 5):', complex_rec[:5])
-    print('Manual anti-diagonal average matches:', np.allclose(complex_rec, manual_check))
