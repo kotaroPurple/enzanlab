@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -30,6 +30,7 @@ class OnlineDMDSnapshot:
     singular_values: NDArray[np.float64]
 
     def __post_init__(self) -> None:
+        """Validate and standardize array shapes."""
         eigvals = np.asarray(self.eigenvalues, dtype=np.complex128).reshape(-1)
         singular = np.asarray(self.singular_values, dtype=np.float64).reshape(-1)
         if eigvals.shape[0] != singular.shape[0]:
@@ -232,7 +233,7 @@ def animate_eigenvalues_on_complex_plane(
         return scatter, time_text
 
     animation = FuncAnimation(
-        fig,
+        fig,  # type: ignore
         _update,
         init_func=_init,
         frames=len(history),

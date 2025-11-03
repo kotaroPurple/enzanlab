@@ -313,14 +313,14 @@ def test_chirp_tracking():
     axes[0, 0].grid(True, alpha=0.3)
 
     ## reconstruct
-    for i, (name, result) in enumerate(results.items()):
+    for name, result in results.items():
         forward_signals = result['forward_mode_signals']
         reconstructed = None
         if name.startswith('Starndard'):
             continue
         # backward_signals = result['backward_mode_signals']
         for j in range(forward_signals.shape[0]):
-            sub_data = flatten_hankel_matrix(forward_signals[j, :, :]).real
+            sub_data = flatten_hankel_matrix(forward_signals[j, :, :]).real  # type: ignore
             if reconstructed is None:
                 reconstructed = sub_data.copy()
             else:
@@ -389,7 +389,7 @@ def test_chirp_tracking():
 
         anim_fig, anim_ax = plt.subplots(figsize=(6, 6))
         animation = animate_eigenvalues_on_complex_plane(snapshot_history, ax=anim_ax)
-        setattr(anim_fig, "_online_dmd_animation", animation)
+        anim_fig._online_dmd_animation = animation  # type: ignore
 
     plt.show()
 

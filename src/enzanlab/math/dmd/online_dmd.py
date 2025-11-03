@@ -157,7 +157,7 @@ class OnlineDMD:
             H_aug = np.block([
                 [self.H, z_old[:, None]],
                 [
-                    np.zeros((1, self.H.shape[1]), dtype=np.complex128),
+                    np.zeros((1, self.H.shape[1]), dtype=np.complex128),  # type: ignore
                     np.array([[z_rho]], dtype=np.complex128),
                 ],
             ])
