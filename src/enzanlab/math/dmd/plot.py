@@ -84,7 +84,9 @@ def plot_singular_value_spectrogram(
         freq = _compute_frequencies(snap.eigenvalues, dt)
         mag = np.abs(snap.singular_values)
         if freq.shape[0] != mag.shape[0]:
-            raise ValueError("Each snapshot must have matching eigenvalue and singular value counts.")
+            raise ValueError(
+                "Each snapshot must have matching eigenvalue and singular value counts."
+            )
         mask = ~np.isnan(freq)
         if not np.any(mask):
             continue
@@ -138,9 +140,19 @@ def animate_eigenvalues_on_complex_plane(
     if not history:
         raise ValueError("history must contain at least one snapshot.")
 
-    eigenvalue_series = [snap.eigenvalues for snap in history if snap.eigenvalues.size > 0]
-    all_eigvals = np.concatenate(eigenvalue_series) if eigenvalue_series else np.array([], dtype=np.complex128)
-    singular_series = [np.abs(snap.singular_values) for snap in history if snap.singular_values.size > 0]
+    eigenvalue_series = [
+        snap.eigenvalues for snap in history if snap.eigenvalues.size > 0
+    ]
+    all_eigvals = (
+        np.concatenate(eigenvalue_series)
+        if eigenvalue_series
+        else np.array([], dtype=np.complex128)
+    )
+    singular_series = [
+        np.abs(snap.singular_values)
+        for snap in history
+        if snap.singular_values.size > 0
+    ]
     all_singular = np.concatenate(singular_series) if singular_series else np.array([1.0])
 
     ax = ax or plt.gca()
@@ -172,7 +184,12 @@ def animate_eigenvalues_on_complex_plane(
     norm = Normalize(vmin=vmin, vmax=vmax, clip=True)
 
     first = history[0]
-    initial_offsets = np.column_stack((first.eigenvalues.real, first.eigenvalues.imag)) if first.eigenvalues.size else np.empty((0, 2))
+    if first.eigenvalues.size:
+        initial_offsets = np.column_stack(
+            (first.eigenvalues.real, first.eigenvalues.imag)
+        )
+    else:
+        initial_offsets = np.empty((0, 2))
     scatter = ax.scatter(
         initial_offsets[:, 0] if initial_offsets.size else [],
         initial_offsets[:, 1] if initial_offsets.size else [],
@@ -196,7 +213,10 @@ def animate_eigenvalues_on_complex_plane(
     def _update(frame_index: int) -> tuple:
         snap = history[frame_index]
         eigvals = snap.eigenvalues
-        offsets = np.column_stack((eigvals.real, eigvals.imag)) if eigvals.size else np.empty((0, 2))
+        if eigvals.size:
+            offsets = np.column_stack((eigvals.real, eigvals.imag))
+        else:
+            offsets = np.empty((0, 2))
         scatter.set_offsets(offsets)
         magnitudes = np.abs(snap.singular_values)
         scatter.set_array(magnitudes)

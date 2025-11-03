@@ -156,7 +156,10 @@ class OnlineDMD:
             z_rho = np.vdot(q_vec, x_new_proc)  # scalar
             H_aug = np.block([
                 [self.H, z_old[:, None]],
-                [np.zeros((1, self.H.shape[1]), dtype=np.complex128), np.array([[z_rho]])]  # type: ignore
+                [
+                    np.zeros((1, self.H.shape[1]), dtype=np.complex128),
+                    np.array([[z_rho]], dtype=np.complex128),
+                ],
             ])
             U_new = U_aug @ Ut_r  # (n, r)
             S_new = St_r

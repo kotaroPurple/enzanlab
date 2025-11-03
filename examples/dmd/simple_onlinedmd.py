@@ -6,6 +6,7 @@ import numpy as np
 from enzanlab.math.dmd.hankel import HankelSignal, array_to_hankel_matrix, flatten_hankel_matrix
 from enzanlab.math.dmd.online_dmd import OnlineDMD
 from enzanlab.math.dmd.plot import (
+    OnlineDMDSnapshot,
     animate_eigenvalues_on_complex_plane,
     plot_singular_value_spectrogram,
     snapshot_from_model,
@@ -162,7 +163,14 @@ def test_chirp_tracking():
     a0 = 1.0
     a1 = 1.3
     for i in range(samples):
-        sample = generator.generate_chirp(f0=f0, f1=f1, a0=a0, a1=a1, duration=duration, noise_level=0.05)
+        sample = generator.generate_chirp(
+            f0=f0,
+            f1=f1,
+            a0=a0,
+            a1=a1,
+            duration=duration,
+            noise_level=0.05,
+        )
         _signal_data.append(sample)
         _time_data.append(i * dt)
 
@@ -171,9 +179,27 @@ def test_chirp_tracking():
 
     # Test different DMD configurations
     configs = [
-        {"window_size": 100, "max_rank": 4, "forgetting_factor": 1.0, "tau": 0.01, "name": "Standard DMD"},
-        {"window_size": 100, "max_rank": 4, "forgetting_factor": 0.99, "tau": 0.01, "name": "Forgetting λ=0.99"},
-        {"window_size": 100, "max_rank": 4, "forgetting_factor": 0.97, "tau": 0.01, "name": "Forgetting λ=0.97"},
+        {
+            "window_size": 100,
+            "max_rank": 4,
+            "forgetting_factor": 1.0,
+            "tau": 0.01,
+            "name": "Standard DMD",
+        },
+        {
+            "window_size": 100,
+            "max_rank": 4,
+            "forgetting_factor": 0.99,
+            "tau": 0.01,
+            "name": "Forgetting λ=0.99",
+        },
+        {
+            "window_size": 100,
+            "max_rank": 4,
+            "forgetting_factor": 0.97,
+            "tau": 0.01,
+            "name": "Forgetting λ=0.97",
+        },
     ]
 
     results = {}
@@ -184,7 +210,10 @@ def test_chirp_tracking():
         # Initialize DMD
         window_size = config['window_size']
         dmd = OnlineDMD(
-            n_dim=window_size, r_max=config['max_rank'], lambda_=config['forgetting_factor'], tau_add=config['tau']
+            n_dim=window_size,
+            r_max=config['max_rank'],
+            lambda_=config['forgetting_factor'],
+            tau_add=config['tau'],
         )
 
         # Initialize with first portion
@@ -197,11 +226,11 @@ def test_chirp_tracking():
         hankel.initialize(init_data[:, -1])
 
         # Track frequency evolution
-        freq_evolution = []
-        time_points = []
-        growth_rates = []
-        amps = []
-        snapshots: list = []
+        freq_evolution: list[float] = []
+        time_points: list[float] = []
+        growth_rates: list[float] = []
+        amps: list[float] = []
+        snapshots: list[OnlineDMDSnapshot] = []
         current_step = init_length
         try:
             snapshots.append(snapshot_from_model(dmd, step_index=current_step, dt=dt))
@@ -352,16 +381,15 @@ def test_chirp_tracking():
     fig.tight_layout()
 
     reference_name = configs[0]["name"]
-    snapshot_history = results.get(reference_name, {}).get("snapshots", [])
-    animations: list = []
+    snapshot_history: list[OnlineDMDSnapshot] = results.get(reference_name, {}).get("snapshots", [])
     if snapshot_history:
         spec_fig, spec_ax = plt.subplots(figsize=(10, 4))
         plot_singular_value_spectrogram(snapshot_history, dt=dt, ax=spec_ax)
         spec_fig.tight_layout()
 
         anim_fig, anim_ax = plt.subplots(figsize=(6, 6))
-        animations.append(animate_eigenvalues_on_complex_plane(snapshot_history, ax=anim_ax))
-        # Keep reference so the animation persists until plt.show() returns.
+        animation = animate_eigenvalues_on_complex_plane(snapshot_history, ax=anim_ax)
+        setattr(anim_fig, "_online_dmd_animation", animation)
 
     plt.show()
 
