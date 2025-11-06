@@ -6,15 +6,16 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from numpy.typing import NDArray
-from scipy.signal import butter, sosfilt
+from scipy.signal import butter, sosfilt, sosfiltfilt
+
 
 @dataclass(slots=True)
 class SidebandFilter:
     """Single-sideband band-pass filter via complex demodulation.
 
     The filter isolates a narrow frequency band by translating the selected sideband to
-    baseband, applying an IIR low-pass filter, and shifting it back to the original
-    center frequency.
+    baseband, applying an IIR low-pass filter, and (optionally) shifting it back to the
+    original center frequency.
 
     Args:
         sample_rate (float): Sampling frequency in Hz.
@@ -24,6 +25,8 @@ class SidebandFilter:
             shifting it back to the original center frequency.
         filter_order (int): Order of the Butterworth low-pass filter applied after
             demodulation (default: 6).
+        remodulate (bool): If True, shift the filtered baseband signal back to the
+            original center frequency (default: True).
 
     Example:
         >>> fs = 1_000.0
@@ -39,6 +42,7 @@ class SidebandFilter:
     band: tuple[float, float]
     zero_phase: bool = False
     filter_order: int = 6
+    remodulate: bool = True
     _sos: NDArray[np.float64] = field(init=False, repr=False)
     _center_frequency: float = field(init=False, repr=False)
     _transient_samples: int = field(init=False, repr=False)
@@ -64,6 +68,9 @@ class SidebandFilter:
         if not isinstance(self.zero_phase, (bool, np.bool_)):
             raise TypeError("zero_phase must be a boolean.")
         self.zero_phase = bool(self.zero_phase)
+        if not isinstance(self.remodulate, (bool, np.bool_)):
+            raise TypeError("remodulate must be a boolean.")
+        self.remodulate = bool(self.remodulate)
 
         self.filter_order = int(self.filter_order)
         if self.filter_order < 1:
@@ -121,10 +128,13 @@ class SidebandFilter:
         demod_phase = np.exp(-1j * 2.0 * np.pi * shift_frequency * time)
         baseband = data * demod_phase
 
-        baseband_filtered = sosfilt(self._sos, baseband, axis=-1)
         if self.zero_phase:
-            filtered = baseband_filtered
+            baseband_filtered = sosfiltfilt(self._sos, baseband, axis=-1)
         else:
+            baseband_filtered = sosfilt(self._sos, baseband, axis=-1)
+
+        filtered = baseband_filtered
+        if self.remodulate:
             remod_phase = np.exp(1j * 2.0 * np.pi * shift_frequency * time)
             filtered = baseband_filtered * remod_phase
 

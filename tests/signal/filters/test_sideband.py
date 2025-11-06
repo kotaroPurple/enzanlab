@@ -42,7 +42,7 @@ def test_sideband_filter_recovers_single_tone(
     else:
         expected = np.exp(-1j * 2.0 * np.pi * negative_freq * t)
 
-    filt = SidebandFilter(sample_rate=fs, band=band, num_taps=201)
+    filt = SidebandFilter(sample_rate=fs, band=band, filter_order=8)
     filtered = filt.filter(signal)
 
     steady = _steady_slice(filt.transient_samples, n_samples)
@@ -61,7 +61,8 @@ def test_zero_phase_returns_baseband() -> None:
         sample_rate=fs,
         band=(100.0, 140.0),
         zero_phase=True,
-        num_taps=201,
+        remodulate=False,
+        filter_order=8,
     )
     filtered = filt.filter(tone)
 
@@ -69,6 +70,28 @@ def test_zero_phase_returns_baseband() -> None:
     baseband = filtered[steady]
     reference = np.ones_like(baseband)
     numerator = np.linalg.norm(baseband - reference)
+    denominator = np.linalg.norm(reference)
+    assert numerator / denominator < 5e-2
+
+
+def test_zero_phase_with_remodulation_restores_frequency() -> None:
+    fs = 2_048.0
+    n_samples = 8_192
+    t = np.arange(n_samples, dtype=np.float64) / fs
+
+    tone = np.exp(1j * 2.0 * np.pi * 120.0 * t)
+    filt = SidebandFilter(
+        sample_rate=fs,
+        band=(100.0, 140.0),
+        zero_phase=True,
+        remodulate=True,
+        filter_order=8,
+    )
+    filtered = filt.filter(tone)
+
+    steady = _steady_slice(filt.transient_samples, n_samples)
+    reference = tone[steady]
+    numerator = np.linalg.norm(filtered[steady] - reference)
     denominator = np.linalg.norm(reference)
     assert numerator / denominator < 5e-2
 
