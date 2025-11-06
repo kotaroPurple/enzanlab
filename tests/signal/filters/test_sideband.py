@@ -26,6 +26,7 @@ def _steady_slice(transient: int, n_samples: int) -> slice:
 def test_sideband_filter_recovers_single_tone(
     band: tuple[float, float], component: str
 ) -> None:
+    """Verify the filter keeps only the requested spectral component."""
     fs = 2_048.0
     n_samples = 8_192
     t = np.arange(n_samples, dtype=np.float64) / fs
@@ -52,6 +53,7 @@ def test_sideband_filter_recovers_single_tone(
 
 
 def test_zero_phase_returns_baseband() -> None:
+    """Ensure zero-phase, non-remodulated output is a unit baseband tone."""
     fs = 2_048.0
     n_samples = 8_192
     t = np.arange(n_samples, dtype=np.float64) / fs
@@ -75,6 +77,7 @@ def test_zero_phase_returns_baseband() -> None:
 
 
 def test_zero_phase_with_remodulation_restores_frequency() -> None:
+    """Ensure zero-phase filtering with remodulation restores the original tone."""
     fs = 2_048.0
     n_samples = 8_192
     t = np.arange(n_samples, dtype=np.float64) / fs
@@ -97,5 +100,6 @@ def test_zero_phase_with_remodulation_restores_frequency() -> None:
 
 
 def test_invalid_band_raises() -> None:
+    """Confirm invalid band definitions raise configuration errors."""
     with pytest.raises(ValueError):
         SidebandFilter(sample_rate=1_000.0, band=(200.0, 200.0))

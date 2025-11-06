@@ -1,4 +1,4 @@
-"""Tools for extracting spectral sidebands using complex demodulation."""
+"""Provide tools for extracting spectral sidebands using complex demodulation."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from scipy.signal import butter, sosfilt, sosfiltfilt
 
 @dataclass(slots=True)
 class SidebandFilter:
-    """Single-sideband band-pass filter via complex demodulation.
+    """Provide a single-sideband band-pass filter via complex demodulation.
 
     The filter isolates a narrow frequency band by translating the selected sideband to
     baseband, applying an IIR low-pass filter, and (optionally) shifting it back to the
@@ -87,7 +87,7 @@ class SidebandFilter:
             btype="low",
             fs=self.sample_rate,
             output="sos",
-        )
+        )  # type: ignore
         self._transient_samples = max(1, 4 * self.filter_order)
 
     def filter(self, signal: NDArray[np.complex128], axis: int = -1) -> NDArray[np.complex128]:
@@ -138,8 +138,8 @@ class SidebandFilter:
             remod_phase = np.exp(1j * 2.0 * np.pi * shift_frequency * time)
             filtered = baseband_filtered * remod_phase
 
-        filtered = np.moveaxis(filtered, -1, axis)
-        return filtered
+        filtered = np.moveaxis(filtered, -1, axis)  # type: ignore
+        return filtered  # type: ignore
 
     @property
     def sos(self) -> NDArray[np.float64]:
@@ -148,5 +148,5 @@ class SidebandFilter:
 
     @property
     def transient_samples(self) -> int:
-        """Heuristic number of initial samples affected by filter transients."""
+        """Return a heuristic count of samples affected by filter transients."""
         return self._transient_samples
