@@ -1,0 +1,78 @@
+"""Unit tests for the sideband filter."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from enzanlab.signal.filters.sideband import SidebandFilter
+
+
+def _steady_slice(num_taps: int, n_samples: int) -> slice:
+    """Return slice indices that avoid the filter's transient region."""
+    delay = (num_taps - 1) // 2
+    if delay == 0:
+        return slice(None)
+    return slice(delay, n_samples - delay)
+
+
+@pytest.mark.parametrize(
+    ("band", "component"),
+    [
+        ((100.0, 140.0), "positive"),
+        ((-200.0, -160.0), "negative"),
+    ],
+)
+def test_sideband_filter_recovers_single_tone(
+    band: tuple[float, float], component: str
+) -> None:
+    fs = 2_048.0
+    n_samples = 8_192
+    t = np.arange(n_samples, dtype=np.float64) / fs
+
+    positive_freq = 120.0
+    negative_freq = 180.0
+    signal = (
+        np.exp(1j * 2.0 * np.pi * positive_freq * t)
+        + np.exp(-1j * 2.0 * np.pi * negative_freq * t)
+    )
+
+    if component == "positive":
+        expected = np.exp(1j * 2.0 * np.pi * positive_freq * t)
+    else:
+        expected = np.exp(-1j * 2.0 * np.pi * negative_freq * t)
+
+    filt = SidebandFilter(sample_rate=fs, band=band, num_taps=201)
+    filtered = filt.filter(signal)
+
+    steady = _steady_slice(filt.num_taps, n_samples)
+    numerator = np.linalg.norm(filtered[steady] - expected[steady])
+    denominator = np.linalg.norm(expected[steady])
+    assert numerator / denominator < 1e-2
+
+
+def test_zero_phase_returns_baseband() -> None:
+    fs = 2_048.0
+    n_samples = 8_192
+    t = np.arange(n_samples, dtype=np.float64) / fs
+
+    tone = np.exp(1j * 2.0 * np.pi * 120.0 * t)
+    filt = SidebandFilter(
+        sample_rate=fs,
+        band=(100.0, 140.0),
+        zero_phase=True,
+        num_taps=201,
+    )
+    filtered = filt.filter(tone)
+
+    steady = _steady_slice(filt.num_taps, n_samples)
+    baseband = filtered[steady]
+    reference = np.ones_like(baseband)
+    numerator = np.linalg.norm(baseband - reference)
+    denominator = np.linalg.norm(reference)
+    assert numerator / denominator < 5e-3
+
+
+def test_invalid_band_raises() -> None:
+    with pytest.raises(ValueError):
+        SidebandFilter(sample_rate=1_000.0, band=(200.0, 200.0))
