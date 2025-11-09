@@ -42,30 +42,40 @@ def flatten_hankel_matrix(hankel_mat: NDArray) -> NDArray:
 
 
 class HankelSignal:
-    """Generate Hankel Matrix from 1D array signal in an online manner."""
-    def __init__(self, window_size: int) -> None:
-        self._window_size = window_size
-        self._array = np.zeros(self._window_size)
+    """Generate Hankel windows from a streaming 1D signal."""
 
-    def initialize(self, values: NDArray[np.floating|np.complexfloating]) -> NDArray:
+    def __init__(self, window_size: int, dtype: np.dtype | None = None) -> None:
+        self._window_size = int(window_size)
+        if self._window_size <= 0:
+            raise ValueError("window_size must be positive.")
+        self._dtype = np.dtype(np.complex128 if dtype is None else dtype)
+        self._array = np.zeros(self._window_size, dtype=self._dtype)
+
+    @property
+    def dtype(self) -> np.dtype:
+        """Return the array dtype maintained by the signal generator."""
+        return self._dtype
+
+    def initialize(self, values: NDArray[np.floating | np.complexfloating]) -> NDArray:
         """Initialize the Hankel signal with the first window of values.
 
         Args:
-            values (NDArray): The initial values for the Hankel signal.
+            values: Initial samples whose shape must match ``window_size``.
 
         Raises:
-            ValueError: If the shape of the values does not match the window size.
+            ValueError: When the provided values cannot fill the Hankel window.
 
         Returns:
-            NDArray: The initialized Hankel signal.
+            The internal buffer after initialization.
         """
-        if self._array.shape != values.shape:
-            raise ValueError()
-        self._array[...] = values
+        arr = np.asarray(values, dtype=self._dtype)
+        if arr.shape != self._array.shape:
+            raise ValueError("values must match window_size.")
+        self._array[...] = arr
         return self._array
 
-    def update(self, value: float|complex) -> NDArray:
+    def update(self, value: float | complex) -> NDArray:
         """Update the Hankel signal with a new value."""
         self._array[:-1] = self._array[1:]
-        self._array[-1] = value
+        self._array[-1] = np.asarray(value, dtype=self._dtype)
         return self._array
