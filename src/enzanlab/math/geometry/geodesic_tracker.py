@@ -1,5 +1,5 @@
 
-"""Geodesic tracker for 1D principal curve on the complex plane."""
+"""Geodesic tracker for a 1D principal curve on the 2D plane."""
 
 from __future__ import annotations
 
@@ -7,30 +7,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def local_tangent_pca(points_2d: np.ndarray) -> np.ndarray:
-    """Estimate local tangent direction using PCA.
-
-    Args:
-        points_2d (np.ndarray): Samples with shape (n, 2).
-
-    Returns:
-        np.ndarray: Unit tangent vector (2,).
-    """
-    if len(points_2d) == 1:
-        return np.array([1.0, 0.0], dtype=float)
-
-    X = points_2d - points_2d.mean(axis=0, keepdims=True)
-    C = (X.T @ X) / max(len(X) - 1, 1)
-    w, V = np.linalg.eigh(C)
-    u = V[:, np.argmax(w)]
-    u = u / (np.linalg.norm(u) + 1e-12)
-    return u
-
-
 class GeodesicTracker1D:
     """Incremental tracker for a 1D principal curve (isomap-inspired).
 
-    The tracker consumes complex samples sequentially and maintains the
+    The tracker consumes 2D samples sequentially and maintains the
     intrinsic coordinate ``s(t)`` plus the tangent direction ``u(t)``.
     """
 
@@ -49,16 +29,30 @@ class GeodesicTracker1D:
         self._u_values.clear()
         self._u_prev = None
 
-    def update(self, z: complex) -> tuple[float, np.ndarray]:
-        """Consume one complex sample and update the geodesic estimate.
+    def update(self, points: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Consume one or more 2D samples and update the geodesic estimate.
 
         Args:
-            z (complex): Incoming complex sample.
+            points (np.ndarray): Samples with shape (2,) or (n, 2).
 
         Returns:
-            tuple[float, np.ndarray]: Current ``s`` value and tangent vector ``u``.
+            tuple[np.ndarray, np.ndarray, np.ndarray]: Arrays of ``s``, ``u``,
+            and raw points for all data seen so far.
         """
-        x_t = np.array([z.real, z.imag], dtype=float)
+        pts_arr = np.asarray(points, dtype=float)
+        if pts_arr.ndim == 1:
+            pts_arr = np.expand_dims(pts_arr, axis=0)
+
+        for x_t in pts_arr:
+            self._update_one(x_t)
+
+        s = np.asarray(self._s_values, dtype=float)
+        u = np.asarray(self._u_values, dtype=float)
+        x = np.asarray(self._x_buffer, dtype=float)
+        return s, u, x
+
+    def _update_one(self, x_t: np.ndarray) -> None:
+        """Update state with a single 2D sample."""
         self._x_buffer.append(x_t)
 
         if len(self._x_buffer) == 1:
@@ -66,7 +60,7 @@ class GeodesicTracker1D:
             s_t = 0.0
         else:
             pts = np.vstack(self._x_buffer[-min(self.win, len(self._x_buffer)) :])
-            u_t = local_tangent_pca(pts)
+            u_t = self._local_tangent_pca(pts)
             if self._u_prev is not None and u_t @ self._u_prev < 0:
                 u_t = -u_t
             if self.smooth_u > 0.0 and self._u_prev is not None:
@@ -80,24 +74,19 @@ class GeodesicTracker1D:
         self._u_prev = u_t
         self._s_values.append(s_t)
         self._u_values.append(u_t)
-        return s_t, u_t
 
-    def process(self, z_series: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Batch-process a complex sequence.
+    @staticmethod
+    def _local_tangent_pca(points_2d: np.ndarray) -> np.ndarray:
+        """Estimate local tangent direction using PCA."""
+        if len(points_2d) == 1:
+            return np.array([1.0, 0.0], dtype=float)
 
-        Args:
-            z_series (np.ndarray): Complex array of shape (T,).
-
-        Returns:
-            tuple[np.ndarray, np.ndarray, np.ndarray]: ``s``, ``u``, and ``x`` arrays.
-        """
-        self.reset()
-        for z in z_series:
-            self.update(z)
-        s = np.asarray(self._s_values, dtype=float)
-        u = np.asarray(self._u_values, dtype=float)
-        x = np.c_[z_series.real, z_series.imag].astype(float)
-        return s, u, x
+        X = points_2d - points_2d.mean(axis=0, keepdims=True)
+        C = (X.T @ X) / max(len(X) - 1, 1)
+        w, V = np.linalg.eigh(C)
+        u = V[:, np.argmax(w)]
+        u = u / (np.linalg.norm(u) + 1e-12)
+        return u
 
 
 def main() -> None:
@@ -108,26 +97,29 @@ def main() -> None:
     theta = 0.8 * np.sin(2 * np.pi * 0.01 * t)  # oscillate along an arc
     theta += 0.1 * np.sin(2 * np.pi * 0.1 * t)
     r = 1.0 + 0.03 * np.sin(2 * np.pi * 0.003 * t)  # slow drift in radius
-    z = r * np.exp(1j * theta)
-    z = z + 0.03 * (np.random.randn(T) + 1j * np.random.randn(T))  # noise
+    x = r * np.cos(theta)
+    y = r * np.sin(theta)
+    x += 0.03 * np.random.randn(T)  # noise
+    y += 0.03 * np.random.randn(T)
+    points = np.c_[x, y].astype(float)
 
     tracker = GeodesicTracker1D(win=64, smooth_u=0.2)
-    s, u, x = tracker.process(z)
+    s, u, xy = tracker.update(points)
 
     # ---- Visualization 1: trajectory in IQ plane + a few tangent vectors ----
     plt.figure()
-    plt.plot(x[:, 0], x[:, 1])
-    plt.xlabel("Re(z)")
-    plt.ylabel("Im(z)")
-    plt.title("Trajectory in IQ plane (Re vs Im)")
+    plt.plot(xy[:, 0], xy[:, 1])
+    plt.xlabel("x")
+    plt.ylabel("y")
+    plt.title("Trajectory in plane (x vs y)")
 
     # show sparse tangent arrows (scaled for visibility)
     idx = np.linspace(0, T - 1, 25, dtype=int)
     scale = 0.15
     for i in idx:
         plt.arrow(
-            x[i, 0],
-            x[i, 1],
+            xy[i, 0],
+            xy[i, 1],
             scale * u[i, 0],
             scale * u[i, 1],
             length_includes_head=True,
