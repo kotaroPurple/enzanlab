@@ -4,6 +4,7 @@ from enzanlab.math.geometry.geodesic_tracker import GeodesicTracker1D
 
 
 def test_process_matches_incremental() -> None:
+    """Test GeodesicTracker1D"""
     rng = np.random.default_rng(0)
     t = np.arange(50)
     theta = 0.4 * np.sin(2 * np.pi * 0.02 * t)
