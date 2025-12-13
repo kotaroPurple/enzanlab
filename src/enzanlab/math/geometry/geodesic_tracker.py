@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-import matplotlib.pyplot as plt
 import numpy as np
+from numpy.typing import NDArray
 
 
 class GeodesicTracker1D:
@@ -17,10 +17,10 @@ class GeodesicTracker1D:
     def __init__(self, win: int = 32, smooth_u: float = 0.0) -> None:
         self.win = win
         self.smooth_u = smooth_u
-        self._x_buffer: list[np.ndarray] = []
+        self._x_buffer: list[NDArray[np.float64]] = []
         self._s_values: list[float] = []
-        self._u_values: list[np.ndarray] = []
-        self._u_prev: np.ndarray | None = None
+        self._u_values: list[NDArray[np.float64]] = []
+        self._u_prev: NDArray[np.float64] | None = None
 
     def reset(self) -> None:
         """Clear internal state."""
@@ -29,15 +29,17 @@ class GeodesicTracker1D:
         self._u_values.clear()
         self._u_prev = None
 
-    def update(self, points: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def update(
+        self, points: NDArray[np.float64]
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
         """Consume one or more 2D samples and update the geodesic estimate.
 
         Args:
-            points (np.ndarray): Samples with shape (2,) or (n, 2).
+            points (NDArray[np.float64]): Samples with shape (2,) or (n, 2).
 
         Returns:
-            tuple[np.ndarray, np.ndarray, np.ndarray]: Arrays of ``s``, ``u``,
-            and raw points for all data seen so far.
+            tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+            Arrays of ``s``, ``u``, and raw points for all data seen so far.
         """
         pts_arr = np.asarray(points, dtype=float)
         if pts_arr.ndim == 1:
@@ -51,7 +53,7 @@ class GeodesicTracker1D:
         x = np.asarray(self._x_buffer, dtype=float)
         return s, u, x
 
-    def _update_one(self, x_t: np.ndarray) -> None:
+    def _update_one(self, x_t: NDArray[np.float64]) -> None:
         """Update state with a single 2D sample."""
         self._x_buffer.append(x_t)
 
@@ -76,7 +78,7 @@ class GeodesicTracker1D:
         self._u_values.append(u_t)
 
     @staticmethod
-    def _local_tangent_pca(points_2d: np.ndarray) -> np.ndarray:
+    def _local_tangent_pca(points_2d: NDArray[np.float64]) -> NDArray[np.float64]:
         """Estimate local tangent direction using PCA."""
         if len(points_2d) == 1:
             return np.array([1.0, 0.0], dtype=float)
@@ -87,58 +89,3 @@ class GeodesicTracker1D:
         u = V[:, np.argmax(w)]
         u = u / (np.linalg.norm(u) + 1e-12)
         return u
-
-
-def main() -> None:
-    # ---- synth data (same as previous example) ----
-    T = 2000
-    t = np.arange(T)
-
-    theta = 0.8 * np.sin(2 * np.pi * 0.01 * t)  # oscillate along an arc
-    theta += 0.1 * np.sin(2 * np.pi * 0.1 * t)
-    r = 1.0 + 0.03 * np.sin(2 * np.pi * 0.003 * t)  # slow drift in radius
-    x = r * np.cos(theta)
-    y = r * np.sin(theta)
-    x += 0.03 * np.random.randn(T)  # noise
-    y += 0.03 * np.random.randn(T)
-    points = np.c_[x, y].astype(float)
-
-    tracker = GeodesicTracker1D(win=64, smooth_u=0.2)
-    s, u, xy = tracker.update(points)
-
-    # ---- Visualization 1: trajectory in IQ plane + a few tangent vectors ----
-    plt.figure()
-    plt.plot(xy[:, 0], xy[:, 1])
-    plt.xlabel("x")
-    plt.ylabel("y")
-    plt.title("Trajectory in plane (x vs y)")
-
-    # show sparse tangent arrows (scaled for visibility)
-    idx = np.linspace(0, T - 1, 25, dtype=int)
-    scale = 0.15
-    for i in idx:
-        plt.arrow(
-            xy[i, 0],
-            xy[i, 1],
-            scale * u[i, 0],
-            scale * u[i, 1],
-            length_includes_head=True,
-            head_width=0.02,
-            head_length=0.03,
-        )
-
-    plt.axis("equal")
-    plt.tight_layout()
-
-    # ---- Visualization 2: 1D coordinate s(t) ----
-    plt.figure()
-    plt.plot(t, s, alpha=0.7)
-    plt.xlabel("time index t")
-    plt.ylabel("s(t)")
-    plt.title("Tracked 1D coordinate s(t) (geodesic-ish)")
-    plt.tight_layout()
-    plt.show()
-
-
-if __name__ == "__main__":
-    main()
