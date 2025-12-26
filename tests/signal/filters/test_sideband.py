@@ -43,7 +43,12 @@ def test_sideband_filter_recovers_single_tone(
     else:
         expected = np.exp(-1j * 2.0 * np.pi * negative_freq * t)
 
-    filt = SidebandFilter(sample_rate=fs, band=band, filter_order=8)
+    filt = SidebandFilter(
+        sample_rate=fs,
+        band=band,
+        zero_phase=True,
+        remodulate=True,
+        filter_order=8)
     filtered = filt.filter(signal)
 
     steady = _steady_slice(filt.transient_samples, n_samples)
