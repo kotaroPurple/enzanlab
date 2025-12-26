@@ -1,27 +1,46 @@
 
 import numpy as np
+from numpy.typing import NDArray
 
 
-def autocorr_mem(x: np.ndarray, order: int) -> np.ndarray:
+def _autocorr_mem(x: NDArray, order: int) -> NDArray:
+    """Calculate autocorrelation for MEM from lag 0 to ``order``.
+
+    Args:
+        x (NDArray): Input signal of shape (n,).
+        order (int): Maximum lag.
+
+    Returns:
+        NDArray: Autocorrelation values of shape (order + 1,).
     """
-    MEM用の自己相関を0..orderまで計算する（複素対応）。
-    r[0] は実数に落としておく。
-    """
-    x = np.asarray(x)
-    N = len(x)
+    n_samples = len(x)
     r = np.zeros(order + 1, dtype=complex)
     for k in range(order + 1):
         # vdot は前を共役する: vdot(a, b) = sum(conj(a)*b)
-        r[k] = np.vdot(x[:N-k], x[k:]) / (N - k)
+        r[k] = np.vdot(x[: n_samples - k], x[k:]) / (n_samples - k)
     # エネルギーなので実数に寄せる
     r[0] = r[0].real
     return r
 
 
-def levinson_durbin(r: np.ndarray, order: int, stability_eps: float = 1e-12):
-    """
-    複素自己相関に対するLevinson–Durbin.
-    予測誤差eが丸めでマイナスにならないように安全側に倒す。
+def _levinson_durbin(
+    r: NDArray,
+    order: int,
+    stability_eps: float = 1e-12,
+) -> tuple[NDArray, float]:
+    """Solve complex Levinson-Durbin recursion.
+
+    Args:
+        r (NDArray): Autocorrelation values of shape (order + 1,).
+        order (int): Model order.
+        stability_eps (float): Lower bound for numerical stability.
+
+    Returns:
+        tuple[NDArray, float]: AR coefficients of shape (order,) and
+            the final prediction error.
+
+    Raises:
+        ValueError: If ``stability_eps`` is not positive.
     """
     if stability_eps <= 0:
         raise ValueError("stability_eps must be positive")
@@ -53,19 +72,30 @@ def levinson_durbin(r: np.ndarray, order: int, stability_eps: float = 1e-12):
             reduction = stability_eps
         e = e * reduction
 
-    return a[1:], e
+    return a[1:], float(e)
 
 
-def mem_spectrum(x: np.ndarray,
-                 order: int = 12,
-                 n_freq: int = 512,
-                 fs: float = 1.0,
-                 stability_eps: float = 1e-12):
+def mem_spectrum(
+    x: NDArray,
+    order: int = 12,
+    n_freq: int = 512,
+    fs: float = 1.0,
+    stability_eps: float = 1e-12,
+) -> tuple[NDArray, NDArray]:
+    """Estimate MEM spectrum (complex signal supported).
+
+    Args:
+        x (NDArray): Input signal of shape (n,).
+        order (int): AR model order.
+        n_freq (int): Number of frequency bins.
+        fs (float): Sampling frequency in Hz.
+        stability_eps (float): Lower bound for numerical stability.
+
+    Returns:
+        tuple[NDArray, NDArray]: Frequencies in Hz and power spectrum.
     """
-    MEMスペクトル推定（複素対応）
-    """
-    r = autocorr_mem(x, order)
-    a, noise_var = levinson_durbin(r, order, stability_eps=stability_eps)
+    r = _autocorr_mem(x, order)
+    a, noise_var = _levinson_durbin(r, order, stability_eps=stability_eps)
 
     freqs = np.linspace(0, fs/2, n_freq)
     w = 2 * np.pi * freqs / fs
@@ -79,26 +109,3 @@ def mem_spectrum(x: np.ndarray,
     Pxx = noise_var / (np.abs(den) ** 2)
 
     return freqs, Pxx
-
-
-if __name__ == "__main__":
-    # 動作テスト：複素IQっぽい信号
-    fs = 100.0  # 100 Hz サンプリング
-    N = 200
-    t = np.arange(N) / fs
-
-    f1 = 5.1   # 5 Hz
-    f2 = 12.2  # 12 Hz
-    # 解析信号っぽく e^{j 2πft} を足す
-    x = np.exp(1j * 2*np.pi*f1*t) + 0.6*np.exp(1j * 2*np.pi*f2*t)
-    x += 0.1 * (np.random.randn(N) + 1j*np.random.randn(N))  # 複素ノイズ
-
-    freqs, Pxx = mem_spectrum(x, order=16, n_freq=512, fs=fs)
-
-    # あとは matplotlib で plot すれば OK
-    import matplotlib.pyplot as plt
-    # plt.plot(freqs, 10*np.log10(Pxx))
-    plt.plot(freqs, np.sqrt(Pxx))
-    plt.xlabel("Frequency [Hz]")
-    plt.ylabel("Power [dB]")
-    plt.show()
