@@ -104,3 +104,16 @@ class SSA:
         if self.u is None or self.s is None or self.vt is None:
             raise ValueError("Call fit(x) before get_svd().")
         return self.u, self.s, self.vt
+
+    def calculate_cumulative_contribution(self) -> NDArray[np.floating]:
+        """Calculate the cumulative contribution ratio of singular values.
+
+        Returns:
+            Cumulative contribution ratio array.
+        """
+        if self.s is None:
+            raise ValueError("Call fit(x) before calculate_cumulative_contribution().")
+        singular_values_squared = self.s**2
+        total_variance = np.sum(singular_values_squared)
+        cumulative_contribution = np.cumsum(singular_values_squared) / total_variance
+        return cumulative_contribution
