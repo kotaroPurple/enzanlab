@@ -4,6 +4,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+from enzanlab.math.correlation.online import OnlineAutocorrelation
 from enzanlab.math.correlation.fft_based import stft_autocorrelation
 
 
@@ -34,13 +35,28 @@ def main() -> None:
         normalize=True,
     )
 
-    print(f"Computed autocorrelation: frames={r.shape[0]}, lags={r.shape[1]}")
+    online = OnlineAutocorrelation(max_lag=max_lag, forgetting_factor=0.98, detrend="ema_mean")
+    r_online = np.empty_like(r)
+    frame_end_indices = (
+        np.arange(r.shape[0]) * hop_length + frame_length - 1
+    ).astype(int)
+    frame_pos = 0
+    for idx, sample in enumerate(signal):
+        r_current = online.update(float(sample))
+        if frame_pos < len(frame_end_indices) and idx == frame_end_indices[frame_pos]:
+            r_online[frame_pos] = r_current / r_current[0] if r_current[0] != 0 else r_current
+            frame_pos += 1
+
+    print(
+        "Computed autocorrelation: frames="
+        f"{r.shape[0]}, lags={r.shape[1]} (FFT, Online)"
+    )
 
     time_axis = (np.arange(len(signal)) / sample_rate).astype(float)
     frame_times = (np.arange(r.shape[0]) * hop_length / sample_rate).astype(float)
     lag_seconds = lags / sample_rate
 
-    fig, axes = plt.subplots(2, 1, figsize=(10, 6), sharex=False)
+    fig, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=False)
 
     axes[0].plot(time_axis, signal, color="tab:blue", linewidth=1.0)
     axes[0].set_title("Input signal")
@@ -54,10 +70,22 @@ def main() -> None:
         extent=[frame_times[0], frame_times[-1], lag_seconds[0], lag_seconds[-1]],
         cmap="magma",
     )
-    axes[1].set_title("Sliding autocorrelation (normalized)")
+    axes[1].set_title("Sliding autocorrelation (FFT, normalized)")
     axes[1].set_xlabel("Frame time [s]")
     axes[1].set_ylabel("Lag [s]")
     fig.colorbar(im, ax=axes[1], label="Correlation")
+
+    im_online = axes[2].imshow(
+        r_online.T,
+        origin="lower",
+        aspect="auto",
+        extent=[frame_times[0], frame_times[-1], lag_seconds[0], lag_seconds[-1]],
+        cmap="magma",
+    )
+    axes[2].set_title("Online autocorrelation (normalized)")
+    axes[2].set_xlabel("Frame time [s]")
+    axes[2].set_ylabel("Lag [s]")
+    fig.colorbar(im_online, ax=axes[2], label="Correlation")
 
     fig.tight_layout()
     plt.show()

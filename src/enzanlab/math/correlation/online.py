@@ -19,7 +19,7 @@ Notes:
 """
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
@@ -72,6 +72,13 @@ class OnlineAutocorrelation:
     max_lag: int
     forgetting_factor: float
     min_lag: int = 0
+    r: np.ndarray = field(init=False, repr=False)
+    lags: np.ndarray = field(init=False, repr=False)
+    _dtype: np.dtype = field(init=False, repr=False)
+    _buf: deque[float] = field(init=False, repr=False)
+    _n_seen: int = field(init=False, repr=False)
+    _mean: float = field(init=False, repr=False)
+    _w: np.ndarray | None = field(init=False, repr=False)
     detrend: DetrendMode = "none"
     mean_forgetting_factor: float | None = None
     unbiased: bool = False
