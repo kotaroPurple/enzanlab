@@ -4,8 +4,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from enzanlab.math.correlation.online import OnlineAutocorrelation
 from enzanlab.math.correlation.fft_based import stft_autocorrelation
+from enzanlab.math.correlation.online import OnlineAutocorrelation
 
 
 def main() -> None:
