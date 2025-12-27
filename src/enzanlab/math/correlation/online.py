@@ -39,8 +39,10 @@ class OnlineAutocorrelation:
     - the autocorrelation peak tends to move smoothly over time.
 
     Args:
+        min_lag: Minimum lag (in samples) to maintain. Returned lags are
+            min_lag..max_lag inclusive.
         max_lag: Maximum lag (in samples) to maintain. Returned lags are
-            0..max_lag inclusive.
+            min_lag..max_lag inclusive.
         forgetting_factor: Forgetting factor \lambda in (0, 1). Larger values
             remember longer history (smoother but slower to react).
         detrend: Detrending mode.
@@ -56,8 +58,8 @@ class OnlineAutocorrelation:
             often works fine without it.
 
     Attributes:
-        r: Current autocorrelation values, shape (max_lag+1,).
-        lags: Lags in samples, shape (max_lag+1,).
+        r: Current autocorrelation values, shape (max_lag-min_lag+1,).
+        lags: Lags in samples, shape (max_lag-min_lag+1,).
 
     Examples:
         >>> acf = OnlineAutocorrelation(max_lag=200, forgetting_factor=0.995)
@@ -69,14 +71,19 @@ class OnlineAutocorrelation:
 
     max_lag: int
     forgetting_factor: float
+    min_lag: int = 0
     detrend: DetrendMode = "none"
     mean_forgetting_factor: float | None = None
     unbiased: bool = False
 
     def __post_init__(self) -> None:
         """Initialize internal buffers and validate configuration."""
+        if self.min_lag < 0:
+            raise ValueError("min_lag must be >= 0")
         if self.max_lag < 0:
             raise ValueError("max_lag must be >= 0")
+        if self.min_lag > self.max_lag:
+            raise ValueError("min_lag must be <= max_lag")
         if not (0.0 < self.forgetting_factor < 1.0):
             raise ValueError("forgetting_factor must be in (0, 1)")
         if self.mean_forgetting_factor is None:
@@ -85,8 +92,8 @@ class OnlineAutocorrelation:
             raise ValueError("mean_forgetting_factor must be in (0, 1)")
 
         self._dtype = np.float64
-        self.r = np.zeros(self.max_lag + 1, dtype=self._dtype)
-        self.lags = np.arange(self.max_lag + 1, dtype=int)
+        self.r = np.zeros(self.max_lag - self.min_lag + 1, dtype=self._dtype)
+        self.lags = np.arange(self.min_lag, self.max_lag + 1, dtype=int)
 
         # A ring buffer holding the most recent samples (raw), length max_lag+1.
         self._buf: deque[float] = deque([0.0] * (self.max_lag + 1), maxlen=self.max_lag + 1)
@@ -99,7 +106,7 @@ class OnlineAutocorrelation:
         # For each lag, effective weight sum differs because x(t-τ) becomes valid
         # only after τ samples. We track per-lag weight sums.
         if self.unbiased:
-            self._w = np.zeros(self.max_lag + 1, dtype=self._dtype)
+            self._w = np.zeros(self.max_lag - self.min_lag + 1, dtype=self._dtype)
         else:
             self._w = None
 
@@ -144,10 +151,15 @@ class OnlineAutocorrelation:
         # sample currently in the buffer corresponds to x(t-1) (before appending x).
         # Align so that prev_last is x(t-1), prev[-1].
         # After we append x, it becomes x(t).
-        # Build lagged vector: [x(t), x(t-1), ..., x(t-max_lag)]
-        lagged = np.empty(self.max_lag + 1, dtype=self._dtype)
-        lagged[0] = x
-        lagged[1:] = prev[::-1][0 : self.max_lag]
+        prev_rev = prev[::-1]
+        if self.min_lag == 0:
+            # Build lagged vector: [x(t), x(t-1), ..., x(t-max_lag)]
+            lagged = np.empty(self.max_lag + 1, dtype=self._dtype)
+            lagged[0] = x
+            lagged[1:] = prev_rev[0 : self.max_lag]
+        else:
+            # Build lagged vector for lags min_lag..max_lag
+            lagged = prev_rev[self.min_lag - 1 : self.max_lag]
 
         lam = self.forgetting_factor
         one_minus = 1.0 - lam
@@ -161,11 +173,12 @@ class OnlineAutocorrelation:
             # A lag τ becomes valid only after τ samples. Before that, lagged values are
             # influenced by the initial zeros, so we keep weights at 0.
             valid_max = self.valid_lag_max()
+            valid_count = max(0, min(valid_max, self.max_lag) - self.min_lag + 1)
             # Update valid lags only
-            self._w[: valid_max + 1] = lam * self._w[: valid_max + 1] + one_minus
+            self._w[:valid_count] = lam * self._w[:valid_count] + one_minus
             # Leave others unchanged
-            if valid_max < self.max_lag:
-                self._w[valid_max + 1 :] = lam * self._w[valid_max + 1 :]
+            if valid_count < self._w.size:
+                self._w[valid_count:] = lam * self._w[valid_count:]
 
             # Apply correction in-place for returned value only (keep internal r unchanged).
             # Return corrected copy.
@@ -198,7 +211,8 @@ class OnlineAutocorrelation:
 
         Args:
             normalize: If True, normalize by lag-0 value so that r[0] == 1
-                when possible.
+                when possible. If min_lag > 0, normalization uses the first
+                available lag (min_lag).
 
         Returns:
             Autocorrelation array for lags 0..max_lag. If unbiased=True, returns
