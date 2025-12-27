@@ -75,9 +75,9 @@ class OnlineAutocorrelation:
     r: np.ndarray = field(init=False, repr=False)
     lags: np.ndarray = field(init=False, repr=False)
     _dtype: np.dtype = field(init=False, repr=False)
-    _buf: deque[float] = field(init=False, repr=False)
+    _buf: deque[complex | float] = field(init=False, repr=False)
     _n_seen: int = field(init=False, repr=False)
-    _mean: float = field(init=False, repr=False)
+    _mean: complex | float = field(init=False, repr=False)
     _w: np.ndarray | None = field(init=False, repr=False)
     detrend: DetrendMode = "none"
     mean_forgetting_factor: float | None = None
@@ -98,22 +98,22 @@ class OnlineAutocorrelation:
         if not (0.0 < float(self.mean_forgetting_factor) < 1.0):
             raise ValueError("mean_forgetting_factor must be in (0, 1)")
 
-        self._dtype = np.float64
+        self._dtype = np.float64  # type: ignore
         self.r = np.zeros(self.max_lag - self.min_lag + 1, dtype=self._dtype)
         self.lags = np.arange(self.min_lag, self.max_lag + 1, dtype=int)
 
         # A ring buffer holding the most recent samples (raw), length max_lag+1.
-        self._buf: deque[float] = deque([0.0] * (self.max_lag + 1), maxlen=self.max_lag + 1)
+        self._buf = deque([0.0] * (self.max_lag + 1), maxlen=self.max_lag + 1)
         self._n_seen: int = 0
 
         # EMA mean for detrending
-        self._mean: float = 0.0
+        self._mean = 0.0
 
         # Optional approximate bias-correction for exponential weighting.
         # For each lag, effective weight sum differs because x(t-τ) becomes valid
         # only after τ samples. We track per-lag weight sums.
         if self.unbiased:
-            self._w = np.zeros(self.max_lag - self.min_lag + 1, dtype=self._dtype)
+            self._w = np.zeros(self.max_lag - self.min_lag + 1, dtype=np.float64)
         else:
             self._w = None
 
@@ -127,11 +127,11 @@ class OnlineAutocorrelation:
         if self._w is not None:
             self._w.fill(0.0)
 
-    def update(self, x_t: float) -> np.ndarray:
+    def update(self, x_t: float | complex) -> np.ndarray:
         """Update the online autocorrelation with one new sample.
 
         Args:
-            x_t: New sample value.
+            x_t: New sample value. Complex values are supported.
 
         Returns:
             Current autocorrelation array for lags 0..max_lag.
@@ -141,7 +141,10 @@ class OnlineAutocorrelation:
             large lags effectively correlate with zeros from the initial buffer.
             If that matters, use `valid_lag_max()` to restrict peak search.
         """
-        x = float(x_t)
+        x_arr = np.asarray(x_t)
+        x = complex(x_arr) if np.iscomplexobj(x_arr) else float(x_arr)
+        if np.iscomplexobj(x_arr) and self._dtype != np.complex128:
+            self._promote_to_complex()
         self._n_seen += 1
 
         if self.detrend == "ema_mean":
@@ -171,8 +174,8 @@ class OnlineAutocorrelation:
         lam = self.forgetting_factor
         one_minus = 1.0 - lam
 
-        # Update correlation: R <- lam*R + (1-lam)* x(t) * x(t-τ)
-        self.r = lam * self.r + one_minus * (x * lagged)
+        # Update correlation: R <- lam*R + (1-lam)* x(t) * conj(x(t-τ))
+        self.r = lam * self.r + one_minus * (x * np.conj(lagged))
 
         if self._w is not None:
             # Track per-lag weight sums to approximately de-bias magnitudes.
@@ -232,35 +235,14 @@ class OnlineAutocorrelation:
         else:
             r = self.r
         if normalize:
-            r0 = float(r[0])
-            if np.isfinite(r0) and r0 != 0.0:
+            r0 = r[0]
+            if np.isfinite(r0) and r0 != 0:
                 r = r / r0
         return r
 
-
-def bpm_lag_range(fs: float, *, bpm_min: float, bpm_max: float) -> tuple[int, int]:
-    """Convert a BPM range to a lag range in samples.
-
-    Args:
-        fs: Sampling frequency in Hz.
-        bpm_min: Minimum BPM (e.g., 45).
-        bpm_max: Maximum BPM (e.g., 180).
-
-    Returns:
-        Tuple (lag_min, lag_max) in samples.
-
-    Raises:
-        ValueError: If inputs are invalid.
-    """
-    if fs <= 0:
-        raise ValueError("fs must be > 0")
-    if bpm_min <= 0 or bpm_max <= 0:
-        raise ValueError("bpm_min and bpm_max must be > 0")
-    if bpm_min >= bpm_max:
-        raise ValueError("bpm_min must be < bpm_max")
-
-    f_min = bpm_min / 60.0
-    f_max = bpm_max / 60.0
-    lag_max = int(np.ceil(fs / f_min))
-    lag_min = int(np.floor(fs / f_max))
-    return lag_min, lag_max
+    def _promote_to_complex(self) -> None:
+        """Promote internal state to complex dtype for complex inputs."""
+        self._dtype = np.complex128  # type: ignore
+        self.r = self.r.astype(self._dtype, copy=False)
+        self._buf = deque((complex(v) for v in self._buf), maxlen=self.max_lag + 1)
+        self._mean = complex(self._mean)
