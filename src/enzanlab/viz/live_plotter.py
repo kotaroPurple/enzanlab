@@ -10,7 +10,7 @@ from matplotlib.colors import to_rgba
 
 ColorRange = tuple[float, float]
 ColorSpec = str | Sequence[float] | np.ndarray
-AxisKey = str | int | tuple[int, int]
+AxisKey = str
 
 
 class LivePlotter:
@@ -25,6 +25,7 @@ class LivePlotter:
         autoscale: bool = False,
         width_ratios: Sequence[float] | None = None,
         height_ratios: Sequence[float] | None = None,
+        tight_layout: bool = False,
     ) -> None:
         """Initialize a figure and axes layout.
 
@@ -35,6 +36,7 @@ class LivePlotter:
             autoscale: If True, autoscale axes after each update.
             width_ratios: Relative column widths for the grid.
             height_ratios: Relative row heights for the grid.
+            tight_layout: If True, call fig.tight_layout() after setup.
         """
         rows, cols = layout
         self.fig = plt.figure(figsize=figsize)
@@ -44,23 +46,36 @@ class LivePlotter:
             width_ratios=width_ratios,
             height_ratios=height_ratios,
         )
-        axs = np.empty((rows, cols), dtype=object)
-        for row in range(rows):
-            for col in range(cols):
-                axs[row, col] = self.fig.add_subplot(grid[row, col])
+        self._grid = grid
 
         self.axes: dict[str, plt.Axes] = {}
         self.artists: dict[str, Any] = {}
         self.artist_axes: dict[str, plt.Axes] = {}
         self.autoscale = autoscale
-        self._axs = axs
-        self._flat_axes = list(axs.flatten())
+        self._tight_layout = tight_layout
 
-        for i, ax in enumerate(axs.flatten()):
-            self.axes[f"ax{i}"] = ax
+        if tight_layout:
+            self.fig.tight_layout()
 
         if show:
             plt.show(block=False)
+
+    def add_ax(self, name: str, row: slice | int, col: slice | int) -> plt.Axes:
+        """Add a new axis using GridSpec slices.
+
+        Args:
+            name: Axis name to register (used as key in axes).
+            row: Row index or slice for spanning rows.
+            col: Column index or slice for spanning columns.
+
+        Returns:
+            The created Matplotlib Axes.
+        """
+        ax = self.fig.add_subplot(self._grid[row, col])
+        self.axes[name] = ax
+        if self._tight_layout:
+            self.fig.tight_layout()
+        return ax
 
     def add_line(self, ax: AxisKey, name: str, **kwargs: Any) -> Any:
         """Register a line artist on the specified axis.
@@ -133,11 +148,6 @@ class LivePlotter:
     def _resolve_ax(self, ax: AxisKey) -> plt.Axes:
         if isinstance(ax, str):
             return self.axes[ax]
-        if isinstance(ax, int):
-            return self._flat_axes[ax]
-        if isinstance(ax, tuple) and len(ax) == 2:
-            row, col = ax
-            return self._axs[row, col]
         raise TypeError(f"Unsupported axis key: {ax!r}")
 
     def update(
