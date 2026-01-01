@@ -23,6 +23,8 @@ class LivePlotter:
         *,
         show: bool = True,
         autoscale: bool = False,
+        width_ratios: Sequence[float] | None = None,
+        height_ratios: Sequence[float] | None = None,
     ) -> None:
         """Initialize a figure and axes layout.
 
@@ -31,11 +33,21 @@ class LivePlotter:
             figsize: Figure size in inches.
             show: If True, show the figure immediately (non-blocking).
             autoscale: If True, autoscale axes after each update.
+            width_ratios: Relative column widths for the grid.
+            height_ratios: Relative row heights for the grid.
         """
-        self.fig, axs = plt.subplots(*layout, figsize=figsize)
-        if not isinstance(axs, np.ndarray):
-            axs = np.array([axs])
-        axs = axs.reshape(layout)
+        rows, cols = layout
+        self.fig = plt.figure(figsize=figsize)
+        grid = self.fig.add_gridspec(
+            rows,
+            cols,
+            width_ratios=width_ratios,
+            height_ratios=height_ratios,
+        )
+        axs = np.empty((rows, cols), dtype=object)
+        for row in range(rows):
+            for col in range(cols):
+                axs[row, col] = self.fig.add_subplot(grid[row, col])
 
         self.axes: dict[str, plt.Axes] = {}
         self.artists: dict[str, Any] = {}
@@ -88,8 +100,8 @@ class LivePlotter:
         self,
         ax: AxisKey,
         *,
-        xlim: tuple[float, float]|None = None,
-        ylim: tuple[float, float]|None = None,
+        xlim: tuple[float, float] | None = None,
+        ylim: tuple[float, float] | None = None,
     ) -> None:
         """Set axis limits explicitly.
 
@@ -150,15 +162,15 @@ class LivePlotter:
         for name, payload in data.items():
             if name not in self.artists:
                 continue
-            if len(payload) < 2:
+            # Safely index payload rather than relying on tuple unpacking,
+            # which can fail for sequences like numpy arrays.
+            try:
+                x = payload[0]
+                y = payload[1]
+            except Exception:
                 continue
-            elif len(payload) == 2:
-                x, y = payload[:2]
-                color = None
-                color_range = None
-            else:
-                x, y, color, *rest = payload[:]
-                color_range: ColorRange|None = rest[0] if rest else None
+            color = payload[2] if len(payload) >= 3 else None
+            color_range = payload[3] if len(payload) >= 4 else None
             artist = self.artists[name]
             if hasattr(artist, "set_data"):
                 artist.set_data(x, y)
