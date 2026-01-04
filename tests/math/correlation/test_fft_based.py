@@ -57,6 +57,45 @@ def test_stft_autocorrelation_unbiased_constant_is_one() -> None:
     np.testing.assert_allclose(r[0], expected, rtol=1e-12, atol=1e-12)
 
 
+def test_stft_autocorrelation_nccf_matches_direct() -> None:
+    """NCCF matches direct overlap-energy normalization."""
+    x = np.array([1.0, 2.0, 3.0, 4.0])
+    r, _ = stft_autocorrelation(
+        x,
+        frame_length=4,
+        hop_length=4,
+        window="boxcar",
+        max_lag=3,
+        detrend="none",
+        nfft=8,
+        nccf=True,
+    )
+    acf = np.correlate(x, x, mode="full")[3:7]
+    expected = np.empty_like(acf, dtype=float)
+    for lag in range(4):
+        a = x[: 4 - lag]
+        b = x[lag:]
+        denom = np.sqrt(np.sum(a * a) * np.sum(b * b))
+        expected[lag] = acf[lag] / denom
+    np.testing.assert_allclose(r[0], expected, rtol=1e-12, atol=1e-12)
+
+
+def test_stft_autocorrelation_nccf_zero_signal_is_zero() -> None:
+    """NCCF returns zeros when overlap energy is zero."""
+    x = np.zeros(4, dtype=float)
+    r, _ = stft_autocorrelation(
+        x,
+        frame_length=4,
+        hop_length=4,
+        window="boxcar",
+        max_lag=3,
+        detrend="none",
+        nfft=8,
+        nccf=True,
+    )
+    np.testing.assert_allclose(r[0], np.zeros(4), rtol=1e-12, atol=1e-12)
+
+
 def test_stft_autocorrelation_invalid_window_raises() -> None:
     """Raises for unsupported window name."""
     x = np.arange(8, dtype=float)

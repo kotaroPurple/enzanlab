@@ -74,6 +74,7 @@ def stft_autocorrelation(
     pad_mode: str = "reflect",
     detrend: Literal["none", "mean"] = "mean",
     normalize: bool = False,
+    nccf: bool = False,
     unbiased: bool = False,
     nfft: int | None = None,
     tukey_alpha: float = 0.5,
@@ -91,6 +92,7 @@ def stft_autocorrelation(
         detrend: "mean" subtracts the frame mean before computing autocorrelation.
             "none" leaves the frame as-is.
         normalize: If True, normalize by R[0] (so that R[0]=1 when possible).
+        nccf: If True, apply per-lag NCCF normalization using overlap energy.
         unbiased: If True, divide each lag by the number of overlapping samples.
         nfft: FFT length. If None, uses next power of 2 >= 2*frame_length.
         tukey_alpha: Shape parameter for Tukey window (0..1) when window="tukey".
@@ -116,7 +118,7 @@ def stft_autocorrelation(
 
     if center:
         pad = frame_length // 2
-        x = np.pad(x, (pad, pad), mode=pad_mode)
+        x = np.pad(array=x, pad_width=(pad, pad), mode=pad_mode)
 
     if max_lag is None:
         max_lag = frame_length - 1
@@ -179,7 +181,15 @@ def stft_autocorrelation(
         if denom is not None:
             acf = acf / denom
 
-        if normalize:
+        if nccf:
+            power = np.abs(frame_w) ** 2
+            prefix = np.concatenate(([0], np.cumsum(power)))
+            lags = np.arange(max_lag + 1)
+            energy_a = prefix[frame_length - lags]
+            energy_b = prefix[frame_length] - prefix[lags]
+            denom = np.sqrt(energy_a * energy_b)
+            acf = np.divide(acf, denom, out=np.zeros_like(acf), where=denom > 0)
+        elif normalize:
             r0 = acf[0]
             if np.isfinite(r0) and r0 != 0:
                 acf = acf / r0
