@@ -56,6 +56,7 @@ class OnlineAutocorrelation:
             bias introduced by exponential weighting. This is approximate and
             mainly useful for comparing magnitudes across lags; peak *location*
             often works fine without it.
+        nccf: If True, normalize by per-lag overlap energy (NCCF-like).
 
     Attributes:
         r: Current autocorrelation values, shape (max_lag-min_lag+1,).
@@ -82,6 +83,9 @@ class OnlineAutocorrelation:
     detrend: DetrendMode = "none"
     mean_forgetting_factor: float | None = None
     unbiased: bool = False
+    nccf: bool = False
+    _energy0: float = field(init=False, repr=False)
+    _energy_lag: np.ndarray | None = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Initialize internal buffers and validate configuration."""
@@ -117,6 +121,13 @@ class OnlineAutocorrelation:
         else:
             self._w = None
 
+        if self.nccf:
+            self._energy0 = 0.0
+            self._energy_lag = np.zeros(self.max_lag - self.min_lag + 1, dtype=np.float64)
+        else:
+            self._energy0 = 0.0
+            self._energy_lag = None
+
     def reset(self) -> None:
         """Reset internal state to zeros."""
         self.r.fill(0.0)
@@ -126,6 +137,9 @@ class OnlineAutocorrelation:
         self._mean = 0.0
         if self._w is not None:
             self._w.fill(0.0)
+        if self._energy_lag is not None:
+            self._energy0 = 0.0
+            self._energy_lag.fill(0.0)
 
     def update(self, x_t: float | complex) -> np.ndarray:
         """Update the online autocorrelation with one new sample.
@@ -177,6 +191,11 @@ class OnlineAutocorrelation:
         # Update correlation: R <- lam*R + (1-lam)* x(t) * conj(x(t-τ))
         self.r = lam * self.r + one_minus * (x * np.conj(lagged))
 
+        if self._energy_lag is not None:
+            x_power = float(np.abs(x) ** 2)
+            self._energy0 = lam * self._energy0 + one_minus * x_power
+            self._energy_lag = lam * self._energy_lag + one_minus * (np.abs(lagged) ** 2)
+
         if self._w is not None:
             # Track per-lag weight sums to approximately de-bias magnitudes.
             # We update weights similarly: w <- lam*w + (1-lam)*1 for lags that are valid.
@@ -198,6 +217,10 @@ class OnlineAutocorrelation:
             out[mask] = out[mask] / w[mask]
         else:
             out = self.r
+
+        if self._energy_lag is not None:
+            denom = np.sqrt(self._energy0 * self._energy_lag)
+            out = np.divide(out, denom, out=np.zeros_like(out), where=denom > 0)
 
         # Store the detrended sample to keep lagged products consistent.
         self._buf.append(x)
@@ -234,6 +257,9 @@ class OnlineAutocorrelation:
             r[mask] = r[mask] / self._w[mask]
         else:
             r = self.r
+        if self._energy_lag is not None:
+            denom = np.sqrt(self._energy0 * self._energy_lag)
+            r = np.divide(r, denom, out=np.zeros_like(r), where=denom > 0)
         if normalize:
             r0 = r[0]
             if np.isfinite(r0) and r0 != 0:

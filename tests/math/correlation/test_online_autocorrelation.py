@@ -16,3 +16,35 @@ def test_online_autocorrelation_complex_updates() -> None:
     r2 = acf.update(2.0 - 1.0j)
     expected_r2 = np.array([3.0 + 0.0j, 0.5 - 1.5j, 0.0 + 0.0j])
     np.testing.assert_allclose(r2, expected_r2, rtol=1e-12, atol=1e-12)
+
+
+def test_online_autocorrelation_nccf_updates() -> None:
+    """NCCF normalization uses overlap energy per lag."""
+    acf = OnlineAutocorrelation(max_lag=2, forgetting_factor=0.5, detrend="none", nccf=True)
+
+    r1 = acf.update(2.0)
+    expected_r1 = np.array([1.0, 0.0, 0.0])
+    np.testing.assert_allclose(r1, expected_r1, rtol=1e-12, atol=1e-12)
+
+    r2 = acf.update(1.0)
+    expected_r2 = np.array([1.0, 1.0 / np.sqrt(3.0), 0.0])
+    np.testing.assert_allclose(r2, expected_r2, rtol=1e-12, atol=1e-12)
+
+
+def test_online_autocorrelation_nccf_ema_mean_detrend() -> None:
+    """NCCF works with EMA detrending."""
+    acf = OnlineAutocorrelation(
+        max_lag=2,
+        forgetting_factor=0.5,
+        detrend="ema_mean",
+        mean_forgetting_factor=0.5,
+        nccf=True,
+    )
+
+    r1 = acf.update(2.0)
+    expected_r1 = np.array([1.0, 0.0, 0.0])
+    np.testing.assert_allclose(r1, expected_r1, rtol=1e-12, atol=1e-12)
+
+    r2 = acf.update(1.0)
+    expected_r2 = np.array([1.0, 0.0, 0.0])
+    np.testing.assert_allclose(r2, expected_r2, rtol=1e-12, atol=1e-12)
