@@ -189,6 +189,9 @@ def stft_autocorrelation(
             energy_b = prefix[frame_length] - prefix[lags]
             denom = np.sqrt(energy_a * energy_b)
             acf = np.divide(acf, denom, out=np.zeros_like(acf), where=denom > 0)
+            r0 = acf[0]
+            if np.isfinite(r0) and r0 != 0:
+                acf = acf / r0
         elif normalize:
             r0 = acf[0]
             if np.isfinite(r0) and r0 != 0:

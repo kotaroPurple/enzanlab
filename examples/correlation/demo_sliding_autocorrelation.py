@@ -32,10 +32,15 @@ def main() -> None:
         tukey_alpha=0.5,
         max_lag=max_lag,
         detrend="mean",
-        normalize=True,
+        nccf=True,
     )
 
-    online = OnlineAutocorrelation(max_lag=max_lag, forgetting_factor=0.98, detrend="ema_mean")
+    online = OnlineAutocorrelation(
+        max_lag=max_lag,
+        forgetting_factor=0.98,
+        detrend="ema_mean",
+        nccf=True,
+    )
     r_online = np.empty_like(r)
     frame_end_indices = (
         np.arange(r.shape[0]) * hop_length + frame_length - 1
@@ -44,7 +49,7 @@ def main() -> None:
     for idx, sample in enumerate(signal):
         r_current = online.update(float(sample))
         if frame_pos < len(frame_end_indices) and idx == frame_end_indices[frame_pos]:
-            r_online[frame_pos] = r_current / r_current[0] if r_current[0] != 0 else r_current
+            r_online[frame_pos] = r_current
             frame_pos += 1
 
     print(
@@ -70,7 +75,7 @@ def main() -> None:
         extent=[frame_times[0], frame_times[-1], lag_seconds[0], lag_seconds[-1]],
         cmap="magma",
     )
-    axes[1].set_title("Sliding autocorrelation (FFT, normalized)")
+    axes[1].set_title("Sliding autocorrelation (FFT, NCCF)")
     axes[1].set_xlabel("Frame time [s]")
     axes[1].set_ylabel("Lag [s]")
     fig.colorbar(im, ax=axes[1], label="Correlation")
@@ -82,7 +87,7 @@ def main() -> None:
         extent=[frame_times[0], frame_times[-1], lag_seconds[0], lag_seconds[-1]],
         cmap="magma",
     )
-    axes[2].set_title("Online autocorrelation (normalized)")
+    axes[2].set_title("Online autocorrelation (NCCF)")
     axes[2].set_xlabel("Frame time [s]")
     axes[2].set_ylabel("Lag [s]")
     fig.colorbar(im_online, ax=axes[2], label="Correlation")
