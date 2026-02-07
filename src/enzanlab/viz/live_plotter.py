@@ -36,6 +36,9 @@ class LivePlotter:
         height_ratios: Sequence[float] | None = None,
         tight_layout: bool = False,
         pause_time: float = 0.001,
+        draw_every_n: int = 1,
+        flush_events: bool = True,
+        blit: bool = False,
     ) -> None:
         """Initialize a figure and axes layout.
 
@@ -49,11 +52,18 @@ class LivePlotter:
             height_ratios: Relative row heights for the grid.
             tight_layout: If True, call fig.tight_layout() after setup.
             pause_time: Pause duration [s] per update. Set 0 to disable pause.
+            draw_every_n: Render every N update() calls.
+            flush_events: If True, flush GUI events after rendering.
+            blit: If True, use blitting when supported for faster updates.
         """
         if nrows <= 0 or ncols <= 0:
             raise ValueError("nrows and ncols must be > 0")
         if pause_time < 0:
             raise ValueError("pause_time must be >= 0")
+        if draw_every_n <= 0:
+            raise ValueError("draw_every_n must be > 0")
+        if blit and autoscale:
+            raise ValueError("blit=True is not supported with autoscale=True")
 
         self._nrows = nrows
         self._ncols = ncols
@@ -74,6 +84,14 @@ class LivePlotter:
         self.autoscale = autoscale
         self._tight_layout = tight_layout
         self._pause_time = pause_time
+        self._draw_every_n = draw_every_n
+        self._flush_events = flush_events
+        self._blit = blit
+        self._update_count = 0
+        self._blit_supported = bool(getattr(self.fig.canvas, "supports_blit", False))
+        self._use_blit = self._blit and self._blit_supported
+        self._blit_backgrounds: dict[plt.Axes, Any] = {}
+        self._blit_invalidated = True
 
         if tight_layout:
             self.fig.tight_layout()
@@ -104,6 +122,7 @@ class LivePlotter:
         ax = self.fig.add_subplot(self._grid[row, col])
         self.axes[name] = ax
         self._occupied[np.ix_(row_indices, col_indices)] = True
+        self._invalidate_blit()
         if self._tight_layout:
             self.fig.tight_layout()
         return ax
@@ -135,9 +154,11 @@ class LivePlotter:
             kwargs["label"] = label
         target_ax = self._resolve_ax(ax)
         line, = target_ax.plot([], [], **kwargs)
+        line.set_animated(self._use_blit)
         self.artists[name] = line
         self.artist_axes[name] = target_ax
         self._update_legend(ax, target_ax, label_position=label_position)
+        self._invalidate_blit()
         return line
 
     def add_scatter(
@@ -167,9 +188,11 @@ class LivePlotter:
             kwargs["label"] = label
         target_ax = self._resolve_ax(ax)
         sc = target_ax.scatter([], [], **kwargs)
+        sc.set_animated(self._use_blit)
         self.artists[name] = sc
         self.artist_axes[name] = target_ax
         self._update_legend(ax, target_ax, label_position=label_position)
+        self._invalidate_blit()
         return sc
 
     def set_label_position(self, ax: AxisKey, position: LabelPosition) -> None:
@@ -181,6 +204,7 @@ class LivePlotter:
         """
         target_ax = self._resolve_ax(ax)
         self._update_legend(ax, target_ax, label_position=position)
+        self._invalidate_blit()
 
     def set_limits(
         self,
@@ -201,6 +225,7 @@ class LivePlotter:
             target_ax.set_xlim(*xlim)
         if ylim is not None:
             target_ax.set_ylim(*ylim)
+        self._invalidate_blit()
 
     def set_title(self, ax: AxisKey, title: str) -> None:
         """Set axis title explicitly.
@@ -211,6 +236,7 @@ class LivePlotter:
         """
         target_ax = self._resolve_ax(ax)
         target_ax.set_title(title)
+        self._invalidate_blit()
 
     def is_open(self) -> bool:
         """Check whether the figure window is still open."""
@@ -246,6 +272,7 @@ class LivePlotter:
             return
         valid_handles, valid_labels = zip(*valid, strict=False)
         axis.legend(valid_handles, valid_labels, loc=loc)
+        self._invalidate_blit()
 
     def _selector_to_indices(
         self,
@@ -284,6 +311,7 @@ class LivePlotter:
         """
         if not plt.fignum_exists(self.fig.number):
             return
+        updated_axes: set[plt.Axes] = set()
         for name, payload in data.items():
             if name not in self.artists:
                 continue
@@ -321,6 +349,7 @@ class LivePlotter:
                     artist.set_offsets(np.c_[x, y])
                 if color is not None:
                     self._apply_scatter_color(artist, color, color_range)
+            updated_axes.add(self.artist_axes[name])
 
             if self.autoscale:
                 ax = self.artist_axes.get(name)
@@ -332,11 +361,52 @@ class LivePlotter:
                     else:
                         ax.relim()
                     ax.autoscale_view()
+                    self._invalidate_blit()
 
-        self.fig.canvas.draw_idle()
-        self.fig.canvas.flush_events()
+        self._update_count += 1
+        if self._update_count % self._draw_every_n != 0:
+            return
+
+        if self._can_use_blit() and updated_axes:
+            self._draw_with_blit(updated_axes)
+        else:
+            self.fig.canvas.draw_idle()
+            if self._flush_events:
+                self.fig.canvas.flush_events()
+
         if self._pause_time > 0:
             plt.pause(self._pause_time)
+
+    def _can_use_blit(self) -> bool:
+        return self._use_blit
+
+    def _invalidate_blit(self) -> None:
+        self._blit_invalidated = True
+        self._blit_backgrounds.clear()
+
+    def _draw_with_blit(self, updated_axes: set[plt.Axes]) -> None:
+        if self._blit_invalidated:
+            self.fig.canvas.draw()
+            for axis in self.axes.values():
+                self._blit_backgrounds[axis] = self.fig.canvas.copy_from_bbox(axis.bbox)
+            self._blit_invalidated = False
+
+        for axis in updated_axes:
+            background = self._blit_backgrounds.get(axis)
+            if background is None:
+                self._invalidate_blit()
+                self.fig.canvas.draw()
+                if self._flush_events:
+                    self.fig.canvas.flush_events()
+                return
+            self.fig.canvas.restore_region(background)
+            for artist_name, artist_axis in self.artist_axes.items():
+                if artist_axis is axis:
+                    axis.draw_artist(self.artists[artist_name])
+            self.fig.canvas.blit(axis.bbox)
+
+        if self._flush_events:
+            self.fig.canvas.flush_events()
 
     def _apply_scatter_color(
         self,
