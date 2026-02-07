@@ -7,9 +7,19 @@ from typing import Any, Literal
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import to_rgba
+from numpy.typing import ArrayLike
 
 ColorRange = tuple[float, float]
 ColorSpec = str | Sequence[float] | np.ndarray
+XYData = ArrayLike
+LinePayload = tuple[XYData, XYData]
+ScatterPayload = (
+    tuple[XYData, XYData]
+    | tuple[XYData, XYData, ColorSpec]
+    | tuple[XYData, XYData, ColorSpec, ColorRange]
+)
+TextPayload = tuple[float, float, str]
+UpdatePayload = LinePayload | ScatterPayload | TextPayload
 AxisKey = str
 LabelPosition = Literal["upper_left", "lower_left", "upper_right", "lower_right"]
 TextTransform = Literal["data", "axes"]
@@ -335,12 +345,7 @@ class LivePlotter:
 
     def update(
         self,
-        data: Mapping[
-            str,
-            tuple[np.ndarray, np.ndarray]
-            | tuple[np.ndarray, np.ndarray, ColorSpec]
-            | tuple[np.ndarray, np.ndarray, ColorSpec, ColorRange],
-        ],
+        data: Mapping[str, UpdatePayload],
     ) -> None:
         """Update artists with new data.
 
@@ -350,6 +355,10 @@ class LivePlotter:
                 - (x, y, color) for scatters with colors.
                 - (x, y, color, (vmin, vmax)) to update color range.
                 - (x, y, text) for text artists.
+
+        Note:
+            3-element payloads are interpreted by artist type:
+            text artists use (x, y, text), scatter uses (x, y, color).
         """
         if not plt.fignum_exists(self.fig.number):
             return
