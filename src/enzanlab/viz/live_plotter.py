@@ -12,6 +12,7 @@ ColorRange = tuple[float, float]
 ColorSpec = str | Sequence[float] | np.ndarray
 AxisKey = str
 LabelPosition = Literal["upper_left", "lower_left", "upper_right", "lower_right"]
+TextTransform = Literal["data", "axes"]
 
 _LEGEND_LOCATIONS: dict[LabelPosition, str] = {
     "upper_left": "upper left",
@@ -195,6 +196,46 @@ class LivePlotter:
         self._invalidate_blit()
         return sc
 
+    def add_text(
+        self,
+        ax: AxisKey,
+        name: str,
+        x: float,
+        y: float,
+        text: str = "",
+        *,
+        transform: TextTransform = "data",
+        **kwargs: Any,
+    ) -> Any:
+        """Register a text artist on the specified axis.
+
+        Args:
+            ax: Axis key name registered by add_ax().
+            name: Artist name for updates.
+            x: Initial x-position.
+            y: Initial y-position.
+            text: Initial text content.
+            transform: Coordinate transform ("data" or "axes").
+            **kwargs: Passed through to Matplotlib's text.
+
+        Returns:
+            The created text artist.
+        """
+        target_ax = self._resolve_ax(ax)
+        if transform == "data":
+            text_transform = target_ax.transData
+        elif transform == "axes":
+            text_transform = target_ax.transAxes
+        else:
+            raise ValueError(f"Unsupported transform: {transform!r}")
+
+        txt = target_ax.text(x, y, text, transform=text_transform, **kwargs)
+        txt.set_animated(self._use_blit)
+        self.artists[name] = txt
+        self.artist_axes[name] = target_ax
+        self._invalidate_blit()
+        return txt
+
     def set_label_position(self, ax: AxisKey, position: LabelPosition) -> None:
         """Set legend corner for labels on an axis.
 
@@ -308,6 +349,7 @@ class LivePlotter:
                 - (x, y) for lines or scatters.
                 - (x, y, color) for scatters with colors.
                 - (x, y, color, (vmin, vmax)) to update color range.
+                - (x, y, text) for text artists.
         """
         if not plt.fignum_exists(self.fig.number):
             return
@@ -316,31 +358,53 @@ class LivePlotter:
             if name not in self.artists:
                 continue
 
-            if len(payload) < 2 or len(payload) > 4:
-                raise ValueError(
-                    f"Invalid payload length for {name!r}: {len(payload)} (expected 2-4)"
-                )
-            x = payload[0]
-            y = payload[1]
-            color = payload[2] if len(payload) >= 3 else None
-            color_range = payload[3] if len(payload) == 4 else None
-            if color_range is not None:
-                if len(color_range) != 2:
-                    raise ValueError(
-                        f"Invalid color range for {name!r}: {color_range!r} "
-                        "(expected finite (vmin, vmax))"
-                    )
-                vmin, vmax = color_range
-                if not np.isfinite(vmin) or not np.isfinite(vmax):
-                    raise ValueError(
-                        f"Invalid color range for {name!r}: {color_range!r} "
-                        "(expected finite (vmin, vmax))"
-                    )
-
             artist = self.artists[name]
-            if hasattr(artist, "set_data"):
+            if hasattr(artist, "set_text") and hasattr(artist, "set_position"):
+                if len(payload) != 3:
+                    raise ValueError(
+                        f"Invalid payload length for text {name!r}: {len(payload)} "
+                        "(expected 3)"
+                    )
+                x_pos = payload[0]
+                y_pos = payload[1]
+                text_value = payload[2]
+                if not isinstance(text_value, str):
+                    raise ValueError(
+                        f"Invalid text payload for {name!r}: third element must be str"
+                    )
+                artist.set_position((x_pos, y_pos))
+                artist.set_text(text_value)
+            elif hasattr(artist, "set_data"):
+                if len(payload) != 2:
+                    raise ValueError(
+                        f"Invalid payload length for line {name!r}: {len(payload)} "
+                        "(expected 2)"
+                    )
+                x = payload[0]
+                y = payload[1]
                 artist.set_data(x, y)
             elif hasattr(artist, "set_offsets"):
+                if len(payload) < 2 or len(payload) > 4:
+                    raise ValueError(
+                        f"Invalid payload length for scatter {name!r}: {len(payload)} "
+                        "(expected 2-4)"
+                    )
+                x = payload[0]
+                y = payload[1]
+                color = payload[2] if len(payload) >= 3 else None
+                color_range = payload[3] if len(payload) == 4 else None
+                if color_range is not None:
+                    if len(color_range) != 2:
+                        raise ValueError(
+                            f"Invalid color range for {name!r}: {color_range!r} "
+                            "(expected finite (vmin, vmax))"
+                        )
+                    vmin, vmax = color_range
+                    if not np.isfinite(vmin) or not np.isfinite(vmax):
+                        raise ValueError(
+                            f"Invalid color range for {name!r}: {color_range!r} "
+                            "(expected finite (vmin, vmax))"
+                        )
                 x = np.asarray(x)
                 y = np.asarray(y)
                 if x.size == 0 or y.size == 0:
@@ -349,6 +413,8 @@ class LivePlotter:
                     artist.set_offsets(np.c_[x, y])
                 if color is not None:
                     self._apply_scatter_color(artist, color, color_range)
+            else:
+                raise TypeError(f"Unsupported artist type for updates: {type(artist)!r}")
             updated_axes.add(self.artist_axes[name])
 
             if self.autoscale:

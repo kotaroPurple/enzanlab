@@ -35,6 +35,16 @@ def main() -> None:
         label="recent points",
         label_position="lower_right",
     )
+    dbg.add_text(
+        "signal_ax",
+        "status_text",
+        0.98,
+        0.95,
+        "k=0",
+        transform="axes",
+        va="top",
+        ha="right",
+    )
 
     dbg.set_limits("signal_ax", xlim=(0.0, 10.0), ylim=(-1.0, 1.0))
     dbg.set_limits("point_ax", xlim=(0.0, 10.0), ylim=(-1.0, 1.0))
@@ -51,6 +61,7 @@ def main() -> None:
                 {
                     "signal": (x[:k], y),
                     "point": (x[:k][-30:], y[-30:]),
+                    "status_text": (0.98, 0.95, f"k={k}"),
                 }
             )
 
