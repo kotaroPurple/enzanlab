@@ -1,7 +1,7 @@
 
 """Lightweight live debugger for Matplotlib visualizations."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -18,7 +18,8 @@ class LivePlotter:
 
     def __init__(
         self,
-        layout: tuple[int, int] = (1, 1),
+        nrows: int = 1,
+        ncols: int = 1,
         figsize: tuple[float, float] = (8, 6),
         *,
         show: bool = True,
@@ -26,33 +27,44 @@ class LivePlotter:
         width_ratios: Sequence[float] | None = None,
         height_ratios: Sequence[float] | None = None,
         tight_layout: bool = False,
+        pause_time: float = 0.001,
     ) -> None:
         """Initialize a figure and axes layout.
 
         Args:
-            layout: Subplot grid size as (rows, cols).
+            nrows: Number of GridSpec rows.
+            ncols: Number of GridSpec columns.
             figsize: Figure size in inches.
             show: If True, show the figure immediately (non-blocking).
             autoscale: If True, autoscale axes after each update.
             width_ratios: Relative column widths for the grid.
             height_ratios: Relative row heights for the grid.
             tight_layout: If True, call fig.tight_layout() after setup.
+            pause_time: Pause duration [s] per update. Set 0 to disable pause.
         """
-        rows, cols = layout
+        if nrows <= 0 or ncols <= 0:
+            raise ValueError("nrows and ncols must be > 0")
+        if pause_time < 0:
+            raise ValueError("pause_time must be >= 0")
+
+        self._nrows = nrows
+        self._ncols = ncols
         self.fig = plt.figure(figsize=figsize)
         grid = self.fig.add_gridspec(
-            rows,
-            cols,
+            nrows,
+            ncols,
             width_ratios=width_ratios,
             height_ratios=height_ratios,
         )
         self._grid = grid
+        self._occupied = np.zeros((nrows, ncols), dtype=bool)
 
         self.axes: dict[str, plt.Axes] = {}
         self.artists: dict[str, Any] = {}
         self.artist_axes: dict[str, plt.Axes] = {}
         self.autoscale = autoscale
         self._tight_layout = tight_layout
+        self._pause_time = pause_time
 
         if tight_layout:
             self.fig.tight_layout()
@@ -71,8 +83,18 @@ class LivePlotter:
         Returns:
             The created Matplotlib Axes.
         """
+        if name in self.axes:
+            raise KeyError(f"Axis name already exists: {name!r}")
+
+        row_indices = self._selector_to_indices(row, self._nrows, "row")
+        col_indices = self._selector_to_indices(col, self._ncols, "col")
+
+        if self._occupied[np.ix_(row_indices, col_indices)].any():
+            raise ValueError("Requested GridSpec region overlaps an existing axis")
+
         ax = self.fig.add_subplot(self._grid[row, col])
         self.axes[name] = ax
+        self._occupied[np.ix_(row_indices, col_indices)] = True
         if self._tight_layout:
             self.fig.tight_layout()
         return ax
@@ -81,7 +103,7 @@ class LivePlotter:
         """Register a line artist on the specified axis.
 
         Args:
-            ax: Axis key as "ax0", flat index, or (row, col).
+            ax: Axis key name registered by add_ax().
             name: Artist name for updates.
             **kwargs: Passed through to Matplotlib's plot.
 
@@ -98,7 +120,7 @@ class LivePlotter:
         """Register a scatter artist on the specified axis.
 
         Args:
-            ax: Axis key as "ax0", flat index, or (row, col).
+            ax: Axis key name registered by add_ax().
             name: Artist name for updates.
             **kwargs: Passed through to Matplotlib's scatter.
 
@@ -121,7 +143,7 @@ class LivePlotter:
         """Set axis limits explicitly.
 
         Args:
-            ax: Axis key (e.g., "ax0").
+            ax: Axis key name registered by add_ax().
             xlim: X-axis limits as (min, max).
             ylim: Y-axis limits as (min, max).
         """
@@ -135,7 +157,7 @@ class LivePlotter:
         """Set axis title explicitly.
 
         Args:
-            ax: Axis key as "ax0", flat index, or (row, col).
+            ax: Axis key name registered by add_ax().
             title: Title text to set.
         """
         target_ax = self._resolve_ax(ax)
@@ -146,13 +168,32 @@ class LivePlotter:
         return plt.fignum_exists(self.fig.number)
 
     def _resolve_ax(self, ax: AxisKey) -> plt.Axes:
-        if isinstance(ax, str):
+        if ax in self.axes:
             return self.axes[ax]
-        raise TypeError(f"Unsupported axis key: {ax!r}")
+        available = ", ".join(sorted(self.axes.keys()))
+        raise KeyError(f"Unknown axis key: {ax!r}. Available axes: [{available}]")
+
+    def _selector_to_indices(
+        self,
+        selector: slice | int,
+        size: int,
+        label: str,
+    ) -> list[int]:
+        if isinstance(selector, int):
+            index = selector if selector >= 0 else size + selector
+            if index < 0 or index >= size:
+                raise IndexError(f"{label} index out of range: {selector}")
+            return [index]
+        if isinstance(selector, slice):
+            values = list(range(*selector.indices(size)))
+            if not values:
+                raise ValueError(f"{label} slice selects no indices: {selector!r}")
+            return values
+        raise TypeError(f"{label} selector must be int or slice, got {type(selector)!r}")
 
     def update(
         self,
-        data: dict[
+        data: Mapping[
             str,
             tuple[np.ndarray, np.ndarray]
             | tuple[np.ndarray, np.ndarray, ColorSpec]
@@ -172,15 +213,28 @@ class LivePlotter:
         for name, payload in data.items():
             if name not in self.artists:
                 continue
-            # Safely index payload rather than relying on tuple unpacking,
-            # which can fail for sequences like numpy arrays.
-            try:
-                x = payload[0]
-                y = payload[1]
-            except Exception:
-                continue
+
+            if len(payload) < 2 or len(payload) > 4:
+                raise ValueError(
+                    f"Invalid payload length for {name!r}: {len(payload)} (expected 2-4)"
+                )
+            x = payload[0]
+            y = payload[1]
             color = payload[2] if len(payload) >= 3 else None
-            color_range = payload[3] if len(payload) >= 4 else None
+            color_range = payload[3] if len(payload) == 4 else None
+            if color_range is not None:
+                if len(color_range) != 2:
+                    raise ValueError(
+                        f"Invalid color range for {name!r}: {color_range!r} "
+                        "(expected finite (vmin, vmax))"
+                    )
+                vmin, vmax = color_range
+                if not np.isfinite(vmin) or not np.isfinite(vmax):
+                    raise ValueError(
+                        f"Invalid color range for {name!r}: {color_range!r} "
+                        "(expected finite (vmin, vmax))"
+                    )
+
             artist = self.artists[name]
             if hasattr(artist, "set_data"):
                 artist.set_data(x, y)
@@ -206,13 +260,15 @@ class LivePlotter:
                     ax.autoscale_view()
 
         self.fig.canvas.draw_idle()
-        plt.pause(0.001)
+        self.fig.canvas.flush_events()
+        if self._pause_time > 0:
+            plt.pause(self._pause_time)
 
     def _apply_scatter_color(
         self,
         artist: Any,
         color: ColorSpec,
-        color_range: ColorRange|None,
+        color_range: ColorRange | None,
     ) -> None:
         if isinstance(color, str):
             artist.set_facecolors([to_rgba(color)])

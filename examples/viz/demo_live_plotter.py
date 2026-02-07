@@ -1,6 +1,4 @@
 
-import time
-
 import numpy as np
 
 from enzanlab.viz.live_plotter import LivePlotter
@@ -9,12 +7,14 @@ from enzanlab.viz.live_plotter import LivePlotter
 def main() -> None:
     """Run a demo of LivePlotter."""
     dbg = LivePlotter(
-        layout=(1, 3),
+        nrows=1,
+        ncols=3,
         figsize=(10, 4),
         show=False,
         autoscale=False,
         width_ratios=(1, 1, 1),
-        tight_layout=True
+        tight_layout=True,
+        pause_time=0.05,
     )
 
     dbg.add_ax("signal_ax", 0, slice(0, 2))
@@ -31,7 +31,6 @@ def main() -> None:
     for k in range(1, len(x)):
         # --- 処理 ---
         y = np.sin(x[:k])
-        time.sleep(0.01)
 
         # --- 表示 ----
         if k % 5 == 0:
