@@ -20,8 +20,21 @@ def main() -> None:
     dbg.add_ax("signal_ax", 0, slice(0, 2))
     dbg.add_ax("point_ax", 0, 2)
 
-    dbg.add_line("signal_ax", "signal", color="C0")
-    dbg.add_scatter("point_ax", "point", s=5, c="C2")
+    dbg.add_line(
+        "signal_ax",
+        "signal",
+        color="C0",
+        label="signal",
+        label_position="upper_left",
+    )
+    dbg.add_scatter(
+        "point_ax",
+        "point",
+        s=5,
+        c="C2",
+        label="recent points",
+        label_position="lower_right",
+    )
 
     dbg.set_limits("signal_ax", xlim=(0.0, 10.0), ylim=(-1.0, 1.0))
     dbg.set_limits("point_ax", xlim=(0.0, 10.0), ylim=(-1.0, 1.0))

@@ -2,7 +2,7 @@
 """Lightweight live debugger for Matplotlib visualizations."""
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,6 +11,14 @@ from matplotlib.colors import to_rgba
 ColorRange = tuple[float, float]
 ColorSpec = str | Sequence[float] | np.ndarray
 AxisKey = str
+LabelPosition = Literal["upper_left", "lower_left", "upper_right", "lower_right"]
+
+_LEGEND_LOCATIONS: dict[LabelPosition, str] = {
+    "upper_left": "upper left",
+    "lower_left": "lower left",
+    "upper_right": "upper right",
+    "lower_right": "lower right",
+}
 
 
 class LivePlotter:
@@ -62,6 +70,7 @@ class LivePlotter:
         self.axes: dict[str, plt.Axes] = {}
         self.artists: dict[str, Any] = {}
         self.artist_axes: dict[str, plt.Axes] = {}
+        self._legend_locs: dict[str, str] = {}
         self.autoscale = autoscale
         self._tight_layout = tight_layout
         self._pause_time = pause_time
@@ -99,39 +108,79 @@ class LivePlotter:
             self.fig.tight_layout()
         return ax
 
-    def add_line(self, ax: AxisKey, name: str, **kwargs: Any) -> Any:
+    def add_line(
+        self,
+        ax: AxisKey,
+        name: str,
+        *,
+        label: str | None = None,
+        label_position: LabelPosition | None = None,
+        **kwargs: Any,
+    ) -> Any:
         """Register a line artist on the specified axis.
 
         Args:
             ax: Axis key name registered by add_ax().
             name: Artist name for updates.
+            label: Legend label for this artist.
+            label_position: Corner for legend placement on this axis.
             **kwargs: Passed through to Matplotlib's plot.
 
         Returns:
             The created line artist.
         """
+        if label is not None and "label" in kwargs:
+            raise ValueError("Specify either label argument or kwargs['label'], not both")
+        if label is not None:
+            kwargs["label"] = label
         target_ax = self._resolve_ax(ax)
         line, = target_ax.plot([], [], **kwargs)
         self.artists[name] = line
         self.artist_axes[name] = target_ax
+        self._update_legend(ax, target_ax, label_position=label_position)
         return line
 
-    def add_scatter(self, ax: AxisKey, name: str, **kwargs: Any) -> Any:
+    def add_scatter(
+        self,
+        ax: AxisKey,
+        name: str,
+        *,
+        label: str | None = None,
+        label_position: LabelPosition | None = None,
+        **kwargs: Any,
+    ) -> Any:
         """Register a scatter artist on the specified axis.
 
         Args:
             ax: Axis key name registered by add_ax().
             name: Artist name for updates.
+            label: Legend label for this artist.
+            label_position: Corner for legend placement on this axis.
             **kwargs: Passed through to Matplotlib's scatter.
 
         Returns:
             The created scatter artist.
         """
+        if label is not None and "label" in kwargs:
+            raise ValueError("Specify either label argument or kwargs['label'], not both")
+        if label is not None:
+            kwargs["label"] = label
         target_ax = self._resolve_ax(ax)
         sc = target_ax.scatter([], [], **kwargs)
         self.artists[name] = sc
         self.artist_axes[name] = target_ax
+        self._update_legend(ax, target_ax, label_position=label_position)
         return sc
+
+    def set_label_position(self, ax: AxisKey, position: LabelPosition) -> None:
+        """Set legend corner for labels on an axis.
+
+        Args:
+            ax: Axis key name registered by add_ax().
+            position: Legend corner ("upper_left", "lower_left", "upper_right", "lower_right").
+        """
+        target_ax = self._resolve_ax(ax)
+        self._update_legend(ax, target_ax, label_position=position)
 
     def set_limits(
         self,
@@ -172,6 +221,31 @@ class LivePlotter:
             return self.axes[ax]
         available = ", ".join(sorted(self.axes.keys()))
         raise KeyError(f"Unknown axis key: {ax!r}. Available axes: [{available}]")
+
+    def _update_legend(
+        self,
+        ax_key: AxisKey,
+        axis: plt.Axes,
+        *,
+        label_position: LabelPosition | None = None,
+    ) -> None:
+        if label_position is not None:
+            self._legend_locs[ax_key] = _LEGEND_LOCATIONS[label_position]
+        loc = self._legend_locs.get(ax_key, _LEGEND_LOCATIONS["upper_right"])
+
+        handles, labels = axis.get_legend_handles_labels()
+        valid = [
+            (handle, text)
+            for handle, text in zip(handles, labels, strict=False)
+            if text and not text.startswith("_")
+        ]
+        legend = axis.get_legend()
+        if not valid:
+            if legend is not None:
+                legend.remove()
+            return
+        valid_handles, valid_labels = zip(*valid, strict=False)
+        axis.legend(valid_handles, valid_labels, loc=loc)
 
     def _selector_to_indices(
         self,
